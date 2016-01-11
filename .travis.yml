@@ -16,7 +16,7 @@ matrix:
           sudo: required
           dist: trusty
         - os: linux
-          env: SPEC=linux-g++-64 CONFIG=installer SHADOW_BUILD_DIR=/tmp/build_linux_install
+          env: SPEC=linux-g++-64 CONFIG=installer SHADOW_BUILD_DIR=/tmp/build_linux_install DEBFULLNAME="Daniel Agar" DEBEMAIL="daniel@agar.ca"
           sudo: required 
           dist: trusty
         - os: osx
@@ -49,7 +49,10 @@ addons:
     - ubuntu-toolchain-r-test
     packages:
     - ccache
+    - debhelper
+    - devscripts
     - doxygen
+    - dput
     - espeak
     - g++-4.8
     - gcc-4.8
@@ -117,7 +120,8 @@ before_script:
 script:
   - cd ${TRAVIS_BUILD_DIR} && ./tools/update_android_version.sh
   - echo 'Building QGroundControl' && echo -en 'travis_fold:start:script.1\\r'
-  - if [ "${CONFIG}" != "doxygen" ]; then cd ${SHADOW_BUILD_DIR} && make -j4; fi
+  - if [[ "${TRAVIS_OS_NAME}" = "linux" && "${CONFIG}" = "installer" && "${CONFIG}" != "doxygen" ]]; then ./deploy/ubuntu_ppa; fi
+  - if [[ "${CONFIG}" != "doxygen" && -z "${DEBEMAIL}" ]]; then cd ${SHADOW_BUILD_DIR} && make -j4; fi
   - if [ "${CONFIG}" = "doxygen" ]; then cd ${TRAVIS_BUILD_DIR}/src && doxygen documentation.dox; fi
   - echo -en 'travis_fold:end:script.1\\r'
   - if [[ "${TRAVIS_OS_NAME}" = "linux" && "${CONFIG}" = "debug" ]]; then ${SHADOW_BUILD_DIR}/debug/qgroundcontrol --unittest; fi

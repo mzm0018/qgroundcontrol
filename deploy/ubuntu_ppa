@@ -16,7 +16,7 @@ cd ${tmpdir}
 tar pczf qgroundcontrol_${dir_version}.orig.tar.gz qgroundcontrol-${dir_version}
 
 cd ${tmpdir}/qgroundcontrol-${dir_version}/
-debuild -S
-debuild --prepend-path=/usr/lib/ccache -sa -B -i -I -j4
+debuild -S -uc -us
+debuild --prepend-path=/usr/lib/ccache -uc -us -sa -B -i -I -j4
 
 dput -f ppa:qgroundcontrol/ppa ${tmpdir}/qgroundcontrol_${version}_source.changes
