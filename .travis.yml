@@ -70,6 +70,7 @@ cache:
 
 
 before_install:
+  - gpg -K
   - cd ${TRAVIS_BUILD_DIR} && git fetch --unshallow && git fetch --all --tags
   - if [ "${TRAVIS_OS_NAME}" = "linux" ]; then mkdir -p ~/.config/QtProject/ && cp ${TRAVIS_BUILD_DIR}/test/qtlogging.ini ~/.config/QtProject/; fi
   - if [ "${TRAVIS_OS_NAME}" = "osx" ]; then mkdir -p ~/Library/Preferences/QtProject/ && cp ${TRAVIS_BUILD_DIR}/test/qtlogging.ini ~/Library/Preferences/QtProject/; fi
