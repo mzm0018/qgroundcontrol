@@ -1,25 +1,12 @@
-/*=====================================================================
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
 
- QGroundControl Open Source Ground Control Station
-
- (c) 2009 - 2015 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
-
- This file is part of the QGROUNDCONTROL project
-
- QGROUNDCONTROL is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
-
- QGROUNDCONTROL is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
-
- ======================================================================*/
 
 import QtQuick 2.3
 
@@ -50,28 +37,32 @@ Rectangle {
             spacing:            ScreenTools.defaultFontPixelHeight
 
             QGCButton {
-                text:       "PX4 Vehicle"
+                text:       qsTr("PX4 Vehicle")
                 onClicked:  QGroundControl.startPX4MockLink(sendStatusText.checked)
             }
             QGCButton {
-                text:       "APM ArduCopter Vehicle"
+                text:       qsTr("APM ArduCopter Vehicle")
                 onClicked:  QGroundControl.startAPMArduCopterMockLink(sendStatusText.checked)
             }
             QGCButton {
-                text:       "APM ArduPlane Vehicle"
+                text:       qsTr("APM ArduPlane Vehicle")
                 onClicked:  QGroundControl.startAPMArduPlaneMockLink(sendStatusText.checked)
             }
             QGCButton {
-                text:       "Generic Vehicle"
+                text:       qsTr("APM ArduSub Vehicle")
+                onClicked:  QGroundControl.startAPMArduSubMockLink(sendStatusText.checked)
+            }
+            QGCButton {
+                text:       qsTr("Generic Vehicle")
                 onClicked:  QGroundControl.startGenericMockLink(sendStatusText.checked)
             }
             QGCCheckBox {
                 id:     sendStatusText
-                text:   "Send status text + voice"
+                text:   qsTr("Send status text + voice")
             }
             QGCButton {
-                text:       "Stop All MockLinks"
-                onClicked:  QGroundControl.stopAllMockLinks()
+                text:       qsTr("Stop One MockLink")
+                onClicked:  QGroundControl.stopOneMockLink()
             }
         }
     }

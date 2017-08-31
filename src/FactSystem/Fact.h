@@ -1,25 +1,12 @@
-/*=====================================================================
- 
- QGroundControl Open Source Ground Control Station
- 
- (c) 2009 - 2014 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- 
- This file is part of the QGROUNDCONTROL project
- 
- QGROUNDCONTROL is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
- 
- QGROUNDCONTROL is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
- 
- You should have received a copy of the GNU General Public License
- along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
- 
- ======================================================================*/
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
+
 
 /// @file
 ///     @author Don Gagne <don@thegagnes.com>
@@ -68,13 +55,15 @@ public:
     Q_PROPERTY(QString      name                    READ name                                               CONSTANT)
     Q_PROPERTY(bool         rebootRequired          READ rebootRequired                                     CONSTANT)
     Q_PROPERTY(QString      shortDescription        READ shortDescription                                   CONSTANT)
-    Q_PROPERTY(FactMetaData::ValueType_t type       READ type                                               CONSTANT)
     Q_PROPERTY(QString      units                   READ cookedUnits                                        CONSTANT)
     Q_PROPERTY(QVariant     value                   READ cookedValue            WRITE setCookedValue        NOTIFY valueChanged)
+    Q_PROPERTY(QVariant     rawValue                READ rawValue               WRITE setRawValue           NOTIFY rawValueChanged)
     Q_PROPERTY(bool         valueEqualsDefault      READ valueEqualsDefault                                 NOTIFY valueChanged)
     Q_PROPERTY(QString      valueString             READ cookedValueString                                  NOTIFY valueChanged)
     Q_PROPERTY(QString      enumOrValueString       READ enumOrValueString                                  NOTIFY valueChanged)
     Q_PROPERTY(double       increment               READ increment                                          CONSTANT)
+    Q_PROPERTY(bool         typeIsString            READ typeIsString                                       CONSTANT)
+    Q_PROPERTY(bool         typeIsBool              READ typeIsBool                                         CONSTANT)
 
     /// Convert and validate value
     ///     @param convertOnly true: validate type conversion only, false: validate against meta data as well
@@ -115,6 +104,8 @@ public:
     bool            rebootRequired          (void) const;
     QString         enumOrValueString       (void);         // This is not const, since an unknown value can modify the enum lists
     double          increment               (void) const;
+    bool            typeIsString            (void) const { return type() == FactMetaData::valueTypeString; }
+    bool            typeIsBool              (void) const { return type() == FactMetaData::valueTypeBool; }
 
     /// Returns the values as a string with full 18 digit precision if float/double.
     QString rawValueStringFullPrecision(void) const;
@@ -158,6 +149,7 @@ signals:
     ///
     /// This signal is only meant for use by the QT property system. It should not be connected to by client code.
     void valueChanged(QVariant value);
+    void rawValueChanged(QVariant value);
     
     /// Signalled when the param write ack comes back from the vehicle
     void vehicleUpdated(QVariant value);

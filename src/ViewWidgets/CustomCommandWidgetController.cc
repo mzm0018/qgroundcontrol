@@ -1,30 +1,17 @@
-/*=====================================================================
- 
- QGroundControl Open Source Ground Control Station
- 
- (c) 2009 - 2014 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- 
- This file is part of the QGROUNDCONTROL project
- 
- QGROUNDCONTROL is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
- 
- QGROUNDCONTROL is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
- 
- You should have received a copy of the GNU General Public License
- along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
- 
- ======================================================================*/
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
+
 
 #include "CustomCommandWidgetController.h"
 #include "MultiVehicleManager.h"
 #include "QGCMAVLink.h"
-#include "QGCFileDialog.h"
+#include "QGCQFileDialog.h"
 #include "UAS.h"
 #include "QGCApplication.h"
 
@@ -34,10 +21,10 @@
 const char* CustomCommandWidgetController::_settingsKey = "CustomCommand.QmlFile";
 
 CustomCommandWidgetController::CustomCommandWidgetController(void) :
-	_uas(NULL)
+    _vehicle(NULL)
 {
     if(qgcApp()->toolbox()->multiVehicleManager()->activeVehicle()) {
-        _uas = qgcApp()->toolbox()->multiVehicleManager()->activeVehicle()->uas();
+        _vehicle = qgcApp()->toolbox()->multiVehicleManager()->activeVehicle();
     }
     QSettings settings;
     _customQmlFile = settings.value(_settingsKey).toString();
@@ -46,21 +33,27 @@ CustomCommandWidgetController::CustomCommandWidgetController(void) :
 
 void CustomCommandWidgetController::sendCommand(int commandId, QVariant componentId, QVariant confirm, QVariant param1, QVariant param2, QVariant param3, QVariant param4, QVariant param5, QVariant param6, QVariant param7)
 {
-    if(_uas) {
-        _uas->executeCommand((MAV_CMD)commandId, confirm.toInt(), param1.toFloat(), param2.toFloat(), param3.toFloat(), param4.toFloat(), param5.toFloat(), param6.toFloat(), param7.toFloat(), componentId.toInt());
+    Q_UNUSED(confirm);
+
+    if(_vehicle) {
+        _vehicle->sendMavCommand(componentId.toInt(),
+                                 (MAV_CMD)commandId,
+                                 true,  // show error if fails
+                                 param1.toFloat(), param2.toFloat(), param3.toFloat(), param4.toFloat(), param5.toFloat(), param6.toFloat(), param7.toFloat());
     }
 }
 
 void CustomCommandWidgetController::_activeVehicleChanged(Vehicle* activeVehicle)
 {
-    if(activeVehicle)
-        _uas = activeVehicle->uas();
+    if (activeVehicle) {
+        _vehicle = activeVehicle;
+    }
 }
 
 void CustomCommandWidgetController::selectQmlFile(void)
 {
     QSettings settings;
-    QString qmlFile = QGCFileDialog::getOpenFileName(NULL, "Select custom Qml file", QString(), "Qml files (*.qml)");
+    QString qmlFile = QGCQFileDialog::getOpenFileName(NULL, "Select custom Qml file", QString(), "Qml files (*.qml)");
     if (qmlFile.isEmpty()) {
         _customQmlFile.clear();
         settings.remove(_settingsKey);

@@ -1,30 +1,16 @@
-/*=====================================================================
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
 
- QGroundControl Open Source Ground Control Station
-
- (c) 2009 - 2015 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
-
- This file is part of the QGROUNDCONTROL project
-
- QGROUNDCONTROL is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
-
- QGROUNDCONTROL is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
-
- ======================================================================*/
-
-import QtQuick                  2.5
+import QtQuick                  2.3
 import QtQuick.Controls         1.2
-import QtQuick.Controls.Styles  1.2
-import QtQuick.Dialogs          1.1
+import QtQuick.Controls.Styles  1.4
+import QtQuick.Dialogs          1.2
 import QtQuick.Layouts          1.2
 import QtLocation               5.3
 import QtPositioning            5.3
@@ -33,35 +19,53 @@ import QGroundControl                       1.0
 import QGroundControl.Controls              1.0
 import QGroundControl.ScreenTools           1.0
 import QGroundControl.Palette               1.0
+import QGroundControl.FlightMap             1.0
+import QGroundControl.QGCMapEngineManager   1.0
+import QGroundControl.FactSystem            1.0
+import QGroundControl.FactControls          1.0
 
-Rectangle {
-    id:                 _offlineMapRoot
-    color:              __qgcPal.window
-    anchors.fill:       parent
-    anchors.margins:    ScreenTools.defaultFontPixelWidth
+QGCView {
+    id:             offlineMapView
+    viewPanel:      panel
+    anchors.fill:   parent
 
-    property var    _currentSelection: null
+    property var    _currentSelection:  null
 
-    property string mapKey:        "lastMapType"
+    property string mapKey:             "lastMapType"
 
-    property string mapType:        QGroundControl.mapEngineManager.loadSetting(mapKey, "Google Street Map")
-    property int    mapMargin:      (ScreenTools.defaultFontPixelHeight * 0.2).toFixed(0)
-    property real   infoWidth:      Math.max(Math.max(nameLabel.width, descLabel.width), (ScreenTools.defaultFontPixelWidth * 40))
-    property bool   isDefaultSet:   _offlineMapRoot._currentSelection && _offlineMapRoot._currentSelection.defaultSet
+    property Fact   _mapboxFact:        QGroundControl.settingsManager.appSettings.mapboxToken
+    property Fact   _esriFact:          QGroundControl.settingsManager.appSettings.esriToken
 
-    property real oldlon0:      0
-    property real oldlon1:      0
-    property real oldlat0:      0
-    property real oldlat1:      0
-    property int  oldz0:        0
-    property int  oldz1:        0
+    property string mapType:            _settings.mapProvider.enumStringValue + " " + _settings.mapType.enumStringValue
+    property bool   isMapInteractive:   false
+    property var    savedCenter:        undefined
+    property real   savedZoom:          3
+    property string savedMapType:       ""
+    property bool   _showPreview:       true
+    property bool   _defaultSet:        offlineMapView && offlineMapView._currentSelection && offlineMapView._currentSelection.defaultSet
+    property real   _margins:           ScreenTools.defaultFontPixelWidth * 0.5
+    property real   _buttonSize:        ScreenTools.defaultFontPixelWidth * 12
+    property real   _bigButtonSize:     ScreenTools.defaultFontPixelWidth * 16
 
-    readonly property real minZoomLevel: 3
-    readonly property real maxZoomLevel: 20
+    property bool   _saveRealEstate:          ScreenTools.isTinyScreen || ScreenTools.isShortScreen
+    property real   _adjustableFontPointSize: _saveRealEstate ? ScreenTools.smallFontPointSize : ScreenTools.defaultFontPointSize
+
+    property var    _mapAdjustedColor:  _map.isSatelliteMap ? "white" : "black"
+    property bool   _tooManyTiles:      QGroundControl.mapEngineManager.tileCount > _maxTilesForDownload
+    property var    _settings:          QGroundControl.settingsManager.flightMapSettings
+
+    readonly property real minZoomLevel:    1
+    readonly property real maxZoomLevel:    20
+    readonly property real sliderTouchArea: ScreenTools.defaultFontPixelWidth * (ScreenTools.isTinyScreen ? 5 : (ScreenTools.isMobile ? 6 : 3))
+
+    readonly property int _maxTilesForDownload: 100000
+
+    QGCPalette { id: qgcPal }
 
     Component.onCompleted: {
         QGroundControl.mapEngineManager.loadTileSets()
         updateMap()
+        savedCenter = _map.toCoordinate(Qt.point(_map.width / 2, _map.height / 2), false /* clipToViewPort */)
     }
 
     Connections {
@@ -77,63 +81,125 @@ Rectangle {
     ExclusiveGroup { id: setGroup }
 
     function handleChanges() {
-        var xl = mapMargin
-        var yl = mapMargin
-        var xr = _map.width.toFixed(0)  - mapMargin
-        var yr = _map.height.toFixed(0) - mapMargin
-        var c0 = _map.toCoordinate(Qt.point(xl, yl))
-        var c1 = _map.toCoordinate(Qt.point(xr, yr))
-        if(oldlon0 !== c0.longitude || oldlat0 !== c0.latitude || oldlon1 !== c1.longitude || oldlat1 !== c1.latitude || oldz0 !== _slider0.value || oldz1 !== _slider1.value) {
-            QGroundControl.mapEngineManager.updateForCurrentView(c0.longitude, c0.latitude, c1.longitude, c1.latitude, _slider0.value, _slider1.value, mapType)
-        }
-    }
-
-    function checkSanity() {
-        if(QGroundControl.mapEngineManager.crazySize) {
-            _slider1.value = _slider1.value - 1
-            handleChanges()
+        if(isMapInteractive) {
+            var xl = 0
+            var yl = 0
+            var xr = _map.width.toFixed(0) - 1  // Must be within boundaries of visible map
+            var yr = _map.height.toFixed(0) - 1 // Must be within boundaries of visible map
+            var c0 = _map.toCoordinate(Qt.point(xl, yl), false /* clipToViewPort */)
+            var c1 = _map.toCoordinate(Qt.point(xr, yr), false /* clipToViewPort */)
+            QGroundControl.mapEngineManager.updateForCurrentView(c0.longitude, c0.latitude, c1.longitude, c1.latitude, sliderMinZoom.value, sliderMaxZoom.value, mapType)
         }
     }
 
     function updateMap() {
         for (var i = 0; i < _map.supportedMapTypes.length; i++) {
+            //console.log(_map.supportedMapTypes[i].name)
             if (mapType === _map.supportedMapTypes[i].name) {
                 _map.activeMapType = _map.supportedMapTypes[i]
+                //console.log("Update Map:" + " " + _map.activeMapType)
                 handleChanges()
                 return
             }
         }
     }
 
-    function showOptions() {
+    function addNewSet() {
+        isMapInteractive = true
+        mapType = _settings.mapProvider.enumStringValue + " " + _settings.mapType.enumStringValue
+        resetMapToDefaults()
+        handleChanges()
+        _map.visible = true
         _tileSetList.visible = false
-        _infoView.visible = false
-        _mapView.visible = false
-        _optionsView.visible = true
-    }
-
-    function showMap() {
-        _tileSetList.visible = false
-        _infoView.visible = false
-        _mapView.visible = true
-        _optionsView.visible = false
+        infoView.visible = false
+        _exporTiles.visible = false
+        addNewSetView.visible = true
     }
 
     function showList() {
+        _exporTiles.visible = false
+        isMapInteractive = false
+        _map.visible = false
         _tileSetList.visible = true
-        _infoView.visible = false
-        _mapView.visible = false
-        _optionsView.visible = false
+        infoView.visible = false
+        addNewSetView.visible = false
+        QGroundControl.mapEngineManager.resetAction();
+    }
+
+    function showExport() {
+        isMapInteractive = false
+        _map.visible = false
+        _tileSetList.visible = false
+        infoView.visible = false
+        addNewSetView.visible = false
+        _exporTiles.visible = true
     }
 
     function showInfo() {
-        if(_currentSelection && !_offlineMapRoot._currentSelection.deleting) {
-            _tileSetList.visible = false
-            _mapView.visible = false
-            _infoView.visible = true
-            _optionsView.visible = false
+        isMapInteractive = false
+        if(_currentSelection && !offlineMapView._currentSelection.deleting) {
+            enterInfoView()
         } else
             showList()
+    }
+
+    function toRadian(deg) {
+        return deg * Math.PI / 180
+    }
+
+    function toDegree(rad) {
+        return rad * 180 / Math.PI
+    }
+
+    function midPoint(lat1, lat2, lon1, lon2) {
+        var dLon = toRadian(lon2 - lon1);
+        lat1 = toRadian(lat1);
+        lat2 = toRadian(lat2);
+        lon1 = toRadian(lon1);
+        var Bx = Math.cos(lat2) * Math.cos(dLon);
+        var By = Math.cos(lat2) * Math.sin(dLon);
+        var lat3 = Math.atan2(Math.sin(lat1) + Math.sin(lat2), Math.sqrt((Math.cos(lat1) + Bx) * (Math.cos(lat1) + Bx) + By * By));
+        var lon3 = lon1 + Math.atan2(By, Math.cos(lat1) + Bx);
+        return QtPositioning.coordinate(toDegree(lat3), toDegree(lon3))
+    }
+
+    function enterInfoView() {
+        _map.visible = true
+        isMapInteractive = false
+        savedCenter = _map.toCoordinate(Qt.point(_map.width / 2, _map.height / 2), false /* clipToViewPort */)
+        savedZoom = _map.zoomLevel
+        savedMapType = mapType
+        if(!offlineMapView._currentSelection.defaultSet) {
+            mapType = offlineMapView._currentSelection.mapTypeStr
+            _map.center = midPoint(offlineMapView._currentSelection.topleftLat, offlineMapView._currentSelection.bottomRightLat, offlineMapView._currentSelection.topleftLon, offlineMapView._currentSelection.bottomRightLon)
+            //-- Delineate Set Region
+            var x0 = offlineMapView._currentSelection.topleftLon
+            var x1 = offlineMapView._currentSelection.bottomRightLon
+            var y0 = offlineMapView._currentSelection.topleftLat
+            var y1 = offlineMapView._currentSelection.bottomRightLat
+            mapBoundary.topLeft     = QtPositioning.coordinate(y0, x0)
+            mapBoundary.bottomRight = QtPositioning.coordinate(y1, x1)
+            mapBoundary.visible = true
+            // Some times, for whatever reason, the bounding box is correct (around ETH for instance), but the rectangle is drawn across the planet.
+            // When that happens, the "_map.fitViewportToMapItems()" below makes the map to zoom to the entire earth.
+            //console.log("Map boundary: " + mapBoundary.topLeft + " " + mapBoundary.bottomRight)
+            _map.fitViewportToMapItems()
+        }
+        _tileSetList.visible = false
+        addNewSetView.visible = false
+        infoView.visible = true
+    }
+
+    function leaveInfoView() {
+        mapBoundary.visible = false
+        _map.center = savedCenter
+        _map.zoomLevel = savedZoom
+        mapType = savedMapType
+    }
+
+    function resetMapToDefaults() {
+        _map.center = QGroundControl.flightMapPosition
+        _map.zoomLevel = QGroundControl.flightMapZoom
     }
 
     ExclusiveGroup {
@@ -142,7 +208,9 @@ Rectangle {
 
     onMapTypeChanged: {
         updateMap()
-        QGroundControl.mapEngineManager.saveSetting(mapKey, mapType)
+        if(isMapInteractive) {
+            QGroundControl.mapEngineManager.saveSetting(mapKey, mapType)
+        }
     }
 
     MessageDialog {
@@ -151,410 +219,504 @@ Rectangle {
         text:       QGroundControl.mapEngineManager.errorMessage
         icon:       StandardIcon.Critical
         standardButtons: StandardButton.Ok
-        title:      "Errror Message"
+        title:      qsTr("Error Message")
         onYes: {
             errorDialog.visible = false
         }
     }
 
-    Rectangle {
-        id:         _offlineMapTopRect
-        width:      parent.width
-        height:     labelTitle.height + ScreenTools.defaultFontPixelHeight
-        color:      __qgcPal.window
-        anchors.top: parent.top
-        Row {
-            spacing: ScreenTools.defaultFontPixelHeight * 2
-            anchors.verticalCenter: parent.verticalCenter
-            QGCLabel {
-                id:         labelTitle
-                text:       "Offline Maps"
-                font.pixelSize: ScreenTools.mediumFontPixelSize
-                anchors.verticalCenter: parent.verticalCenter
-            }
-            QGCCheckBox {
-                id:         showTilePreview
-                text:       "Show tile min/max zoom level preview"
-                checked:    false
-                visible:    _mapView.visible
-                anchors.verticalCenter: parent.verticalCenter
-            }
-        }
-    }
+    Component {
+        id: optionsDialogComponent
 
-    QGCFlickable {
-        id:                 _tileSetList
-        clip:               true
-        anchors.top:        _offlineMapTopRect.bottom
-        anchors.left:       parent.left
-        anchors.right:      parent.right
-        anchors.bottom:     _optionsButton.top
-        contentHeight:      _cacheList.height
-        flickableDirection: Flickable.VerticalFlick
+        QGCViewDialog {
+            id: optionDialog
 
-        Column {
-            id:                 _cacheList
-            width:              Math.min(parent.width, (ScreenTools.defaultFontPixelWidth  * 50).toFixed(0))
-            anchors.margins:    ScreenTools.defaultFontPixelWidth
-            spacing:            (ScreenTools.defaultFontPixelHeight * 0.5).toFixed(0)
-            anchors.horizontalCenter: parent.horizontalCenter
-
-            OfflineMapButton {
-                text:           "Add new set"
-                anchors.left:   parent.left
-                anchors.right:  parent.right
-                height:         (ScreenTools.defaultFontPixelHeight * 2).toFixed(0)
-                onClicked: {
-                    _offlineMapRoot._currentSelection = null
-                    showMap()
-                }
+            function accept() {
+                QGroundControl.mapEngineManager.maxDiskCache = parseInt(maxCacheSize.text)
+                QGroundControl.mapEngineManager.maxMemCache  = parseInt(maxCacheMemSize.text)
+                optionDialog.hideDialog()
             }
-            Repeater {
-                model: QGroundControl.mapEngineManager.tileSets
-                delegate: OfflineMapButton {
-                    text:           object.name
-                    size:           object.downloadStatus
-                    complete:       object.complete
-                    anchors.left:   parent.left
-                    anchors.right:  parent.right
-                    height:         (ScreenTools.defaultFontPixelHeight * 2).toFixed(0)
-                    onClicked: {
-                        _offlineMapRoot._currentSelection = object
-                        showInfo()
+
+            QGCFlickable {
+                anchors.fill:   parent
+                contentHeight:  optionsColumn.height
+
+                Column {
+                    id:                 optionsColumn
+                    anchors.margins:    ScreenTools.defaultFontPixelWidth
+                    anchors.left:       parent.left
+                    anchors.right:      parent.right
+                    anchors.top:        parent.top
+                    spacing:            ScreenTools.defaultFontPixelHeight / 2
+
+                    QGCLabel { text:       qsTr("Max Cache Disk Size (MB):") }
+
+                    QGCTextField {
+                        id:                 maxCacheSize
+                        maximumLength:      6
+                        inputMethodHints:   Qt.ImhDigitsOnly
+                        validator:          IntValidator {bottom: 1; top: 262144;}
+                        text:               QGroundControl.mapEngineManager.maxDiskCache
                     }
-                }
+
+                    Item { width: 1; height: 1 }
+
+                    QGCLabel { text:       qsTr("Max Cache Memory Size (MB):") }
+
+                    QGCTextField {
+                        id:                 maxCacheMemSize
+                        maximumLength:      4
+                        inputMethodHints:   Qt.ImhDigitsOnly
+                        validator:          IntValidator {bottom: 1; top: 1024;}
+                        text:               QGroundControl.mapEngineManager.maxMemCache
+                    }
+
+                    QGCLabel {
+                        font.pointSize: _adjustableFontPointSize
+                        text:           qsTr("Memory cache changes require a restart to take effect.")
+                    }
+
+                    Item { width: 1; height: 1; visible: _mapboxFact ? _mapboxFact.visible : false }
+                    QGCLabel { text: qsTr("Mapbox Access Token"); visible: _mapboxFact ? _mapboxFact.visible : false }
+                    FactTextField {
+                        fact:               _mapboxFact
+                        visible:            _mapboxFact ? _mapboxFact.visible : false
+                        maximumLength:      256
+                        width:              ScreenTools.defaultFontPixelWidth * 30
+                    }
+                    QGCLabel {
+                        text:           qsTr("To enable Mapbox maps, enter your access token.")
+                        visible:        _mapboxFact ? _mapboxFact.visible : false
+                        font.pointSize: _adjustableFontPointSize
+                    }
+
+                    Item { width: 1; height: 1; visible: _esriFact ? _esriFact.visible : false }
+                    QGCLabel { text: qsTr("Esri Access Token"); visible: _esriFact ? _esriFact.visible : false }
+                    FactTextField {
+                        fact:               _esriFact
+                        visible:            _esriFact ? _esriFact.visible : false
+                        maximumLength:      256
+                        width:              ScreenTools.defaultFontPixelWidth * 30
+                    }
+                    QGCLabel {
+                        text:           qsTr("To enable Esri maps, enter your access token.")
+                        visible:        _esriFact ? _esriFact.visible : false
+                        font.pointSize: _adjustableFontPointSize
+                    }
+                } // GridLayout
+            } // QGCFlickable
+        } // QGCViewDialog - optionsDialog
+    } // Component - optionsDialogComponent
+
+    Component {
+        id: deleteConfirmationDialogComponent
+        QGCViewMessage {
+            id:  deleteConfirmationDialog
+            message: {
+                if(offlineMapView._currentSelection.defaultSet)
+                    return qsTr("This will delete all tiles INCLUDING the tile sets you have created yourself.\n\nIs this really what you want?");
+                else
+                    return qsTr("Delete %1 and all its tiles.\n\nIs this really what you want?").arg(offlineMapView._currentSelection.name);
+            }
+            function accept() {
+                QGroundControl.mapEngineManager.deleteTileSet(offlineMapView._currentSelection)
+                deleteConfirmationDialog.hideDialog()
+                leaveInfoView()
+                showList()
             }
         }
     }
 
-    QGCButton {
-        id:              _optionsButton
-        text:            "Options"
-        visible:         _tileSetList.visible
-        anchors.bottom:  parent.bottom
-        anchors.right:   parent.right
-        anchors.margins: ScreenTools.defaultFontPixelWidth
-        onClicked:       showOptions()
-    }
+    QGCViewPanel {
+        id:                 panel
+        anchors.fill:       parent
 
-    //-- Offline Map Definition
-    Rectangle {
-        id:                 _mapView
-        color:              __qgcPal.window
-        width:              parent.width
-        anchors.top:        _offlineMapTopRect.bottom
-        anchors.bottom:     parent.bottom
-        anchors.margins:    ScreenTools.defaultFontPixelWidth
-        visible:            false
+        FlightMap {
+            id:                         _map
+            anchors.fill:               parent
+            visible:                    false
+            allowGCSLocationCenter:     true
+            allowVehicleLocationCenter: false
+            gesture.flickDeceleration:  3000
+            mapName:                    "OfflineMap"
 
-        Rectangle {
-            width:          parent.width
-            anchors.top:    parent.top
-            anchors.bottom: bottomRect.top
-            color:          (__qgcPal.globalTheme === QGCPalette.Light) ? "black" : "#98aca4"
+            property bool isSatelliteMap: activeMapType.name.indexOf("Satellite") > -1 || activeMapType.name.indexOf("Hybrid") > -1
 
-            Map {
-                id:                 _map
-                anchors.fill:       parent
-                anchors.margins:    ScreenTools.defaultFontPixelHeight * 0.15
-                center:             QGroundControl.defaultMapPosition
-                gesture.flickDeceleration:  3000
-                gesture.activeGestures:     MapGestureArea.ZoomGesture | MapGestureArea.PanGesture | MapGestureArea.FlickGesture
-                plugin: Plugin { name: "QGroundControl" }
-
-                Component.onCompleted: {
-                    center = QGroundControl.flightMapPosition
-                    zoomLevel = QGroundControl.flightMapZoom
-                }
-
-                onCenterChanged: {
-                    handleChanges()
-                    checkSanity()
-                }
-                onZoomLevelChanged: {
-                    handleChanges()
-                    checkSanity()
-                }
-                onWidthChanged: {
-                    handleChanges()
-                    checkSanity()
-                }
-                onHeightChanged: {
-                    handleChanges()
-                    checkSanity()
-                }
-                // Used to make pinch zoom work
-                MouseArea {
-                    anchors.fill: parent
-                }
+            MapRectangle {
+                id:             mapBoundary
+                border.width:   2
+                border.color:   "red"
+                color:          Qt.rgba(1,0,0,0.05)
+                smooth:         true
+                antialiasing:   true
             }
 
+            Component.onCompleted: resetMapToDefaults()
+
+            onCenterChanged:    handleChanges()
+            onZoomLevelChanged: handleChanges()
+            onWidthChanged:     handleChanges()
+            onHeightChanged:    handleChanges()
+
+            // Used to make pinch zoom work
+            MouseArea {
+                anchors.fill: parent
+            }
+
+            MapScale {
+                anchors.leftMargin:     ScreenTools.defaultFontPixelWidth / 2
+                anchors.bottomMargin:   anchors.leftMargin
+                anchors.left:           parent.left
+                anchors.bottom:         parent.bottom
+                mapControl:             _map
+            }
+
+            //-----------------------------------------------------------------
+            //-- Show Set Info
             Rectangle {
-                width:              ScreenTools.defaultFontPixelHeight * 16
-                height:             ScreenTools.defaultFontPixelHeight * 9
-                anchors.top:        parent.top
-                anchors.left:       parent.left
+                id:                 infoView
                 anchors.margins:    ScreenTools.defaultFontPixelHeight
-                color:              "black"
-                visible:            showTilePreview.checked
-                Map {
-                    id:                 _mapMin
-                    anchors.fill:       parent
-                    anchors.margins:    2
-                    zoomLevel:          _slider0.value
-                    center:             _map.center
-                    gesture.enabled:    false
-                    activeMapType:      _map.activeMapType
-                    plugin: Plugin { name: "QGroundControl" }
-                }
-            }
-            Rectangle {
-                width:              ScreenTools.defaultFontPixelHeight * 16
-                height:             ScreenTools.defaultFontPixelHeight * 9
-                anchors.top:        parent.top
                 anchors.right:      parent.right
-                anchors.margins:    ScreenTools.defaultFontPixelHeight
-                color:              "black"
-                visible:            showTilePreview.checked
-                Map {
-                    id:                 _mapMax
-                    anchors.fill:       parent
-                    anchors.margins:    2
-                    zoomLevel:          _slider1.value
-                    center:             _map.center
-                    gesture.enabled:    false
-                    activeMapType:      _map.activeMapType
-                    plugin: Plugin { name: "QGroundControl" }
+                anchors.verticalCenter: parent.verticalCenter
+                width:              tileInfoColumn.width  + (ScreenTools.defaultFontPixelWidth  * 2)
+                height:             tileInfoColumn.height + (ScreenTools.defaultFontPixelHeight * 2)
+                color:              Qt.rgba(qgcPal.window.r, qgcPal.window.g, qgcPal.window.b, 0.85)
+                radius:             ScreenTools.defaultFontPixelWidth * 0.5
+                visible:            false
+
+                property bool       _extraButton: {
+                    if(!offlineMapView._currentSelection)
+                        return false;
+                    var curSel = offlineMapView._currentSelection;
+                    return !_defaultSet && ((!curSel.complete && !curSel.downloading) || (!curSel.complete && curSel.downloading));
                 }
-            }
-        }
-        Rectangle {
-            id:     bottomRect
-            width:  parent.width
-            height: _controlRow.height + (ScreenTools.defaultFontPixelHeight * 2)
-            color:  __qgcPal.window
-            anchors.bottom: parent.bottom
-            Row {
-                id: _controlRow
-                anchors.centerIn: parent
-                spacing: ScreenTools.defaultFontPixelWidth * 0.5
-                Rectangle {
-                    height:     _zoomRow.height + ScreenTools.defaultFontPixelHeight * 1.5
-                    width:      _zoomRow.width  + ScreenTools.defaultFontPixelWidth
-                    color:      "#98aca4"
-                    border.color: "black"
-                    border.width: 2
-                    radius:     ScreenTools.defaultFontPixelWidth * 0.5
-                    anchors.verticalCenter: parent.verticalCenter
+
+                property real       _labelWidth:    ScreenTools.defaultFontPixelWidth * 10
+                property real       _valueWidth:    ScreenTools.defaultFontPixelWidth * 14
+                Column {
+                    id:                 tileInfoColumn
+                    anchors.margins:    ScreenTools.defaultFontPixelHeight * 0.5
+                    spacing:            ScreenTools.defaultFontPixelHeight * 0.5
+                    anchors.centerIn:   parent
+                    QGCLabel {
+                        anchors.left:   parent.left
+                        anchors.right:  parent.right
+                        wrapMode:       Text.WordWrap
+                        text:           offlineMapView._currentSelection ? offlineMapView._currentSelection.name : ""
+                        font.pointSize: _saveRealEstate ? ScreenTools.defaultFontPointSize : ScreenTools.mediumFontPointSize
+                        horizontalAlignment: Text.AlignHCenter
+                        visible:        _defaultSet
+                    }
+                    QGCTextField {
+                        id:             editSetName
+                        anchors.left:   parent.left
+                        anchors.right:  parent.right
+                        visible:        !_defaultSet
+                        text:           offlineMapView._currentSelection ? offlineMapView._currentSelection.name : ""
+                    }
+                    QGCLabel {
+                        anchors.left:   parent.left
+                        anchors.right:  parent.right
+                        wrapMode:       Text.WordWrap
+                        text: {
+                            if(offlineMapView._currentSelection) {
+                                if(offlineMapView._currentSelection.defaultSet)
+                                    return qsTr("System Wide Tile Cache");
+                                else
+                                    return "(" + offlineMapView._currentSelection.mapTypeStr + ")"
+                            } else
+                                return "";
+                        }
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                    //-- Tile Sets
                     Row {
-                        id: _zoomRow
-                        anchors.centerIn:   parent
-                        Column {
-                            spacing:            ScreenTools.defaultFontPixelHeight * 0.5
-                            anchors.verticalCenter: parent.verticalCenter
-                            Row {
-                                spacing:        ScreenTools.defaultFontPixelWidth * 0.5
-                                Column {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    Label {
-                                        text:   "Min"
-                                        color:  "black"
-                                        width:  ScreenTools.defaultFontPixelWidth * 5
-                                        font.pixelSize: ScreenTools.smallFontPixelSize
-                                        horizontalAlignment: Text.AlignHCenter
-                                    }
-                                    Label {
-                                        text:   "Zoom"
-                                        color:  "black"
-                                        width:  ScreenTools.defaultFontPixelWidth * 5
-                                        font.pixelSize: ScreenTools.smallFontPixelSize
-                                        horizontalAlignment: Text.AlignHCenter
-                                    }
-                                }
-                                Slider {
-                                    id:                 _slider0
-                                    minimumValue:       minZoomLevel
-                                    maximumValue:       maxZoomLevel
-                                    stepSize:           1
-                                    tickmarksEnabled:   false
-                                    orientation:        Qt.Horizontal
-                                    updateValueWhileDragging: true
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    style: SliderStyle {
-                                        groove: Rectangle {
-                                            implicitWidth:  ScreenTools.defaultFontPixelWidth * 12
-                                            implicitHeight: 4
-                                            color:          "gray"
-                                            radius:         4
-                                        }
-                                        handle: Rectangle {
-                                            anchors.centerIn: parent
-                                            color: control.pressed ? "white" : "lightgray"
-                                            border.color: "gray"
-                                            border.width:   2
-                                            implicitWidth:  ScreenTools.isAndroid ? 60 : 30
-                                            implicitHeight: ScreenTools.isAndroid ? 60 : 30
-                                            radius:         10
-                                            Label {
-                                                text:  _slider0.value
-                                                anchors.centerIn: parent
-                                            }
-                                        }
-                                    }
-                                    Component.onCompleted: {
-                                        _slider0.value = _map.zoomLevel - 2
-                                    }
-                                    onValueChanged: {
-                                        if(_slider1) {
-                                            if(_slider0.value > _slider1.value)
-                                                _slider1.value = _slider0.value
-                                            else {
-                                                handleChanges()
-                                                checkSanity()
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            Row {
-                                spacing:        ScreenTools.defaultFontPixelWidth * 0.5
-                                Column {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    Label {
-                                        text:   "Max"
-                                        color:  "black"
-                                        width:  ScreenTools.defaultFontPixelWidth * 5
-                                        font.pixelSize: ScreenTools.smallFontPixelSize
-                                        horizontalAlignment: Text.AlignHCenter
-                                    }
-                                    Label {
-                                        text:   "Zoom"
-                                        color:  "black"
-                                        width:  ScreenTools.defaultFontPixelWidth * 5
-                                        font.pixelSize: ScreenTools.smallFontPixelSize
-                                        horizontalAlignment: Text.AlignHCenter
-                                    }
-                                }
-                                Slider {
-                                    id:                 _slider1
-                                    minimumValue:       minZoomLevel
-                                    maximumValue:       maxZoomLevel
-                                    stepSize:           1
-                                    tickmarksEnabled:   false
-                                    orientation:        Qt.Horizontal
-                                    updateValueWhileDragging: true
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    style: SliderStyle {
-                                        groove: Rectangle {
-                                            implicitWidth:  ScreenTools.defaultFontPixelWidth * 12
-                                            implicitHeight: 4
-                                            color:          "gray"
-                                            radius:         4
-                                        }
-                                        handle: Rectangle {
-                                            anchors.centerIn: parent
-                                            color: control.pressed ? "white" : "lightgray"
-                                            border.color: "gray"
-                                            border.width:   2
-                                            implicitWidth:  ScreenTools.isAndroid ? 60 : 30
-                                            implicitHeight: ScreenTools.isAndroid ? 60 : 30
-                                            radius:         10
-                                            Label {
-                                                text:  _slider1.value
-                                                anchors.centerIn: parent
-                                            }
-                                        }
-                                    }
-                                    Component.onCompleted: {
-                                        _slider1.value = _map.zoomLevel + 2
-                                    }
-                                    onValueChanged: {
-                                        if(_slider1.value < _slider0.value)
-                                            _slider0.value = _slider1.value
-                                        else {
-                                            handleChanges()
-                                            checkSanity()
-                                        }
-                                    }
-                                }
+                        spacing:    ScreenTools.defaultFontPixelWidth
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        visible:    !_defaultSet
+                        QGCLabel {  text: qsTr("Zoom Levels:"); width: infoView._labelWidth; }
+                        QGCLabel {  text: offlineMapView._currentSelection ? (offlineMapView._currentSelection.minZoom + " - " + offlineMapView._currentSelection.maxZoom) : ""; horizontalAlignment: Text.AlignRight; width: infoView._valueWidth; }
+                    }
+                    Row {
+                        spacing:    ScreenTools.defaultFontPixelWidth
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        visible:    !_defaultSet
+                        QGCLabel {  text: qsTr("Total:"); width: infoView._labelWidth; }
+                        QGCLabel {  text: (offlineMapView._currentSelection ? offlineMapView._currentSelection.totalTileCountStr : "") + " (" + (offlineMapView._currentSelection ? offlineMapView._currentSelection.totalTilesSizeStr : "") + ")"; horizontalAlignment: Text.AlignRight; width: infoView._valueWidth; }
+                    }
+                    Row {
+                        spacing:    ScreenTools.defaultFontPixelWidth
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        visible:    offlineMapView && offlineMapView._currentSelection && !_defaultSet && offlineMapView._currentSelection.uniqueTileCount > 0
+                        QGCLabel {  text: qsTr("Unique:"); width: infoView._labelWidth; }
+                        QGCLabel {  text: (offlineMapView._currentSelection ? offlineMapView._currentSelection.uniqueTileCountStr : "") + " (" + (offlineMapView._currentSelection ? offlineMapView._currentSelection.uniqueTileSizeStr : "") + ")"; horizontalAlignment: Text.AlignRight; width: infoView._valueWidth; }
+                    }
+
+                    Row {
+                        spacing:    ScreenTools.defaultFontPixelWidth
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        visible:    offlineMapView && offlineMapView._currentSelection && !_defaultSet && !offlineMapView._currentSelection.complete
+                        QGCLabel {  text: qsTr("Downloaded:"); width: infoView._labelWidth; }
+                        QGCLabel {  text: (offlineMapView._currentSelection ? offlineMapView._currentSelection.savedTileCountStr : "") + " (" + (offlineMapView._currentSelection ? offlineMapView._currentSelection.savedTileSizeStr : "") + ")"; horizontalAlignment: Text.AlignRight; width: infoView._valueWidth; }
+                    }
+                    Row {
+                        spacing:    ScreenTools.defaultFontPixelWidth
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        visible:    offlineMapView && offlineMapView._currentSelection && !_defaultSet && !offlineMapView._currentSelection.complete && offlineMapView._currentSelection.errorCount > 0
+                        QGCLabel {  text: qsTr("Error Count:"); width: infoView._labelWidth; }
+                        QGCLabel {  text: offlineMapView._currentSelection ? offlineMapView._currentSelection.errorCountStr : ""; horizontalAlignment: Text.AlignRight; width: infoView._valueWidth; }
+                    }
+                    //-- Default Tile Set
+                    Row {
+                        spacing:    ScreenTools.defaultFontPixelWidth
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        visible:    _defaultSet
+                        QGCLabel { text: qsTr("Size:"); width: infoView._labelWidth; }
+                        QGCLabel { text: offlineMapView._currentSelection ? offlineMapView._currentSelection.savedTileSizeStr  : ""; horizontalAlignment: Text.AlignRight; width: infoView._valueWidth; }
+                    }
+                    Row {
+                        spacing:    ScreenTools.defaultFontPixelWidth
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        visible:    _defaultSet
+                        QGCLabel { text: qsTr("Tile Count:"); width: infoView._labelWidth; }
+                        QGCLabel { text: offlineMapView._currentSelection ? offlineMapView._currentSelection.savedTileCountStr : ""; horizontalAlignment: Text.AlignRight; width: infoView._valueWidth; }
+                    }
+                    Row {
+                        spacing:    ScreenTools.defaultFontPixelWidth
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        QGCButton {
+                            text:       qsTr("Resume Download")
+                            visible:    offlineMapView._currentSelection && offlineMapView._currentSelection && !_defaultSet && (!offlineMapView._currentSelection.complete && !offlineMapView._currentSelection.downloading)
+                            width:      ScreenTools.defaultFontPixelWidth * 16
+                            onClicked: {
+                                if(offlineMapView._currentSelection)
+                                    offlineMapView._currentSelection.resumeDownloadTask()
                             }
                         }
-                        Column {
-                            spacing:            ScreenTools.defaultFontPixelHeight * 0.5
-                            anchors.verticalCenter: parent.verticalCenter
-                            Label {
-                                text:   "Tile Count"
-                                color:  "black"
-                                width:  ScreenTools.defaultFontPixelWidth * 12
-                                font.pixelSize: ScreenTools.smallFontPixelSize
-                                horizontalAlignment: Text.AlignHCenter
+                        QGCButton {
+                            text:       qsTr("Cancel Download")
+                            visible:    offlineMapView._currentSelection && offlineMapView._currentSelection && !_defaultSet && (!offlineMapView._currentSelection.complete && offlineMapView._currentSelection.downloading)
+                            width:      ScreenTools.defaultFontPixelWidth * 16
+                            onClicked: {
+                                if(offlineMapView._currentSelection)
+                                    offlineMapView._currentSelection.cancelDownloadTask()
                             }
-                            Label {
-                                text:  QGroundControl.mapEngineManager.tileCountStr
-                                color: "black"
-                                width: ScreenTools.defaultFontPixelWidth * 12
-                                horizontalAlignment: Text.AlignHCenter
+                        }
+                        QGCButton {
+                            text:       qsTr("Delete")
+                            width:      ScreenTools.defaultFontPixelWidth * (infoView._extraButton ? 6 : 10)
+                            onClicked:  showDialog(deleteConfirmationDialogComponent, qsTr("Confirm Delete"), qgcView.showDialogDefaultWidth, StandardButton.Yes | StandardButton.No)
+                        }
+                        QGCButton {
+                            text:       qsTr("Ok")
+                            width:      ScreenTools.defaultFontPixelWidth * (infoView._extraButton ? 6 : 10)
+                            visible:    !_defaultSet
+                            enabled:    editSetName.text !== ""
+                            onClicked: {
+                                if(editSetName.text !== _currentSelection.name) {
+                                    QGroundControl.mapEngineManager.renameTileSet(_currentSelection, editSetName.text)
+                                }
+                                leaveInfoView()
+                                showList()
                             }
-                            Label {
-                                text:   "Set Size (Est)"
-                                color:  "black"
-                                width:  ScreenTools.defaultFontPixelWidth * 12
-                                font.pixelSize: ScreenTools.smallFontPixelSize
-                                horizontalAlignment: Text.AlignHCenter
-                            }
-                            Label {
-                                text:  QGroundControl.mapEngineManager.tileSizeStr
-                                color: "black"
-                                width: ScreenTools.defaultFontPixelWidth * 12
-                                horizontalAlignment: Text.AlignHCenter
+                        }
+                        QGCButton {
+                            text:       _defaultSet ? qsTr("Close") : qsTr("Cancel")
+                            width:      ScreenTools.defaultFontPixelWidth * (infoView._extraButton ? 6 : 10)
+                            onClicked: {
+                                leaveInfoView()
+                                showList()
                             }
                         }
                     }
                 }
+            } // Rectangle - infoView
+
+            //-----------------------------------------------------------------
+            //-- Add new set
+            Item {
+                id:             addNewSetView
+                anchors.fill:   parent
+                visible:        false
+
                 Column {
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing:            ScreenTools.defaultFontPixelHeight * 0.5
-                    Row {
-                        spacing:        ScreenTools.defaultFontPixelWidth * 2
-                        QGCLabel {
-                            text:   "Name:"
-                            width:  ScreenTools.defaultFontPixelWidth * 10
-                            anchors.verticalCenter: parent.verticalCenter
-                            horizontalAlignment: Text.AlignRight
+                    anchors.leftMargin:     _margins
+                    anchors.left:           parent.left
+                    spacing:                _margins
+
+                    QGCButton {
+                        text:       "Show zoom previews"
+                        visible:    !_showPreview
+                        onClicked:  _showPreview = !_showPreview
+                    }
+
+                    Map {
+                        id:                 minZoomPreview
+                        width:              addNewSetView.width / 4
+                        height:             addNewSetView.height / 4
+                        center:             _map.center
+                        activeMapType:      _map.activeMapType
+                        zoomLevel:          sliderMinZoom.value
+                        gesture.enabled:    false
+                        visible:            _showPreview
+
+                        property bool isSatelliteMap: activeMapType.name.indexOf("Satellite") > -1 || activeMapType.name.indexOf("Hybrid") > -1
+
+                        plugin: Plugin { name: "QGroundControl" }
+
+                        MapScale {
+                            anchors.leftMargin:     ScreenTools.defaultFontPixelWidth / 2
+                            anchors.bottomMargin:   anchors.leftMargin
+                            anchors.left:           parent.left
+                            anchors.bottom:         parent.bottom
+                            mapControl:             parent
                         }
+
+                        Rectangle {
+                            anchors.fill:   parent
+                            border.color:   _mapAdjustedColor
+                            color:          "transparent"
+
+                            QGCMapLabel {
+                                anchors.centerIn:   parent
+                                map:                minZoomPreview
+                                text:               qsTr("Min Zoom: %1").arg(sliderMinZoom.value)
+                            }
+                            MouseArea {
+                                anchors.fill:   parent
+                                onClicked:      _showPreview = false
+                            }
+                        }
+                    } // Map
+
+                    Map {
+                        id:                 maxZoomPreview
+                        width:              minZoomPreview.width
+                        height:             minZoomPreview.height
+                        center:             _map.center
+                        activeMapType:      _map.activeMapType
+                        zoomLevel:          sliderMaxZoom.value
+                        gesture.enabled:    false
+                        visible:            _showPreview
+
+                        property bool isSatelliteMap: activeMapType.name.indexOf("Satellite") > -1 || activeMapType.name.indexOf("Hybrid") > -1
+
+                        plugin: Plugin { name: "QGroundControl" }
+
+                        MapScale {
+                            anchors.leftMargin:     ScreenTools.defaultFontPixelWidth / 2
+                            anchors.bottomMargin:   anchors.leftMargin
+                            anchors.left:           parent.left
+                            anchors.bottom:         parent.bottom
+                            mapControl:             parent
+                        }
+
+                        Rectangle {
+                            anchors.fill:   parent
+                            border.color:   _mapAdjustedColor
+                            color:          "transparent"
+
+                            QGCMapLabel {
+                                anchors.centerIn:   parent
+                                map:                maxZoomPreview
+                                text:               qsTr("Max Zoom: %1").arg(sliderMaxZoom.value)
+                            }
+                            MouseArea {
+                                anchors.fill:   parent
+                                onClicked:      _showPreview = false
+                            }
+                        }
+                    } // Map
+                }
+            } // Item - Add new set view
+
+            CenterMapDropButton {
+                topMargin:          0
+                anchors.margins:    _margins
+                anchors.left:       map.left
+                anchors.top:        map.top
+                map:                _map
+                showMission:        false
+                showAllItems:       false
+                visible:            addNewSetView.visible
+            }
+        } // Map
+
+        //-- Add new set dialog
+        Rectangle {
+            anchors.margins:    ScreenTools.defaultFontPixelWidth
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.right:      parent.right
+            visible:            addNewSetView.visible
+            width:              ScreenTools.defaultFontPixelWidth * (ScreenTools.isTinyScreen ? 24 : 28)
+            height:             Math.min(parent.height - (anchors.margins * 2), addNewSetFlickable.y + addNewSetColumn.height + addNewSetLabel.anchors.margins)
+            color:              Qt.rgba(qgcPal.window.r, qgcPal.window.g, qgcPal.window.b, 0.85)
+            radius:             ScreenTools.defaultFontPixelWidth * 0.5
+
+            MouseArea {
+                anchors.fill:   parent
+                onWheel:        { wheel.accepted = true; }
+                onPressed:      { mouse.accepted = true; }
+                onReleased:     { mouse.accepted = true; }
+            }
+
+            QGCLabel {
+                id:                 addNewSetLabel
+                anchors.margins:    ScreenTools.defaultFontPixelHeight / 2
+                anchors.top:        parent.top
+                anchors.left:       parent.left
+                anchors.right:      parent.right
+                wrapMode:           Text.WordWrap
+                text:               qsTr("Add New Set")
+                font.pointSize:     _saveRealEstate ? ScreenTools.defaultFontPointSize : ScreenTools.mediumFontPointSize
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            QGCFlickable {
+                id:                     addNewSetFlickable
+                anchors.leftMargin:     ScreenTools.defaultFontPixelWidth
+                anchors.rightMargin:    anchors.leftMargin
+                anchors.topMargin:      ScreenTools.defaultFontPixelWidth / 3
+                anchors.bottomMargin:   anchors.topMargin
+                anchors.top:            addNewSetLabel.bottom
+                anchors.left:           parent.left
+                anchors.right:          parent.right
+                anchors.bottom:         parent.bottom
+                clip:                   true
+                contentHeight:          addNewSetColumn.height
+
+                Column {
+                    id:                 addNewSetColumn
+                    anchors.left:       parent.left
+                    anchors.right:      parent.right
+                    spacing:            ScreenTools.defaultFontPixelHeight * (ScreenTools.isTinyScreen ? 0.25 : 0.5)
+
+                    Column {
+                        spacing:            ScreenTools.isTinyScreen ? 0 : ScreenTools.defaultFontPixelHeight * 0.25
+                        anchors.left:       parent.left
+                        anchors.right:      parent.right
+                        QGCLabel { text: qsTr("Name:") }
                         QGCTextField {
-                            id:     setName
-                            width:  ScreenTools.defaultFontPixelWidth * 24
-                            anchors.verticalCenter: parent.verticalCenter
+                            id:             setName
+                            anchors.left:   parent.left
+                            anchors.right:  parent.right
                         }
                     }
-                    Row {
-                        spacing: ScreenTools.defaultFontPixelWidth * 2
+
+                    Column {
+                        spacing:            ScreenTools.isTinyScreen ? 0 : ScreenTools.defaultFontPixelHeight * 0.25
+                        anchors.left:       parent.left
+                        anchors.right:      parent.right
                         QGCLabel {
-                            text:  "Description:"
-                            width:  ScreenTools.defaultFontPixelWidth * 10
-                            anchors.verticalCenter: parent.verticalCenter
-                            horizontalAlignment: Text.AlignRight
-                        }
-                        QGCTextField {
-                            id:     setDescription
-                            text:   "Description"
-                            width:  ScreenTools.defaultFontPixelWidth * 24
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                    }
-                    Row {
-                        spacing: ScreenTools.defaultFontPixelWidth * 2
-                        QGCLabel {
-                            text:  "Map Type:"
-                            width:  ScreenTools.defaultFontPixelWidth * 10
-                            anchors.verticalCenter: parent.verticalCenter
-                            horizontalAlignment: Text.AlignRight
+                            text:       qsTr("Map type:")
+                            visible:    !_saveRealEstate
                         }
                         QGCComboBox {
-                            id:         mapCombo
-                            width:      ScreenTools.defaultFontPixelWidth * 24
-                            model:      QGroundControl.mapEngineManager.mapList
+                            id:             mapCombo
+                            anchors.left:   parent.left
+                            anchors.right:  parent.right
+                            model:          QGroundControl.mapEngineManager.mapList
                             onActivated: {
                                 mapType = textAt(index)
                                 if(_dropButtonsExclusiveGroup.current)
@@ -571,370 +733,475 @@ Rectangle {
                             }
                         }
                     }
-                }
-                Item {
-                    height: 1
-                    width:  ScreenTools.defaultFontPixelWidth * 1.5
-                }
-                Column {
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: ScreenTools.defaultFontPixelHeight * 0.5
-                    QGCButton {
-                        text:  "Download"
-                        enabled: setName.text.length > 0
-                        width: ScreenTools.defaultFontPixelWidth * 10
-                        onClicked: {
-                            if(QGroundControl.mapEngineManager.findName(setName.text)) {
-                                duplicateName.visible = true
-                            } else {
-                                /* This does not work if hosted by QQuickWidget. Waiting until we're 100% QtQuick
-                                var mapImage
-                                _map.grabToImage(function(result) { mapImage = result; })
-                                QGroundControl.mapEngineManager.startDownload(setName.text, setDescription.text, mapType, mapImage);
-                                */
-                                QGroundControl.mapEngineManager.startDownload(setName.text, setDescription.text, mapType);
-                                showList()
+
+                    Rectangle {
+                        anchors.left:   parent.left
+                        anchors.right:  parent.right
+                        height:         zoomColumn.height + ScreenTools.defaultFontPixelHeight * 0.5
+                        color:          qgcPal.window
+                        border.color:   qgcPal.text
+                        radius:         ScreenTools.defaultFontPixelWidth * 0.5
+
+                        Column {
+                            id:                 zoomColumn
+                            spacing:            ScreenTools.isTinyScreen ? 0 : ScreenTools.defaultFontPixelHeight * 0.5
+                            anchors.margins:    ScreenTools.defaultFontPixelHeight * 0.25
+                            anchors.top:        parent.top
+                            anchors.left:       parent.left
+                            anchors.right:      parent.right
+
+                            QGCLabel {
+                                text:           qsTr("Min/Max Zoom Levels")
+                                font.pointSize: _adjustableFontPointSize
+                                anchors.horizontalCenter: parent.horizontalCenter
                             }
-                        }
-                    }
-                    QGCButton {
-                        text:  "Cancel"
-                        width: ScreenTools.defaultFontPixelWidth * 10
-                        onClicked: {
-                            showList()
-                        }
-                    }
-                    MessageDialog {
-                        id:         duplicateName
-                        visible:    false
-                        icon:       StandardIcon.Warning
-                        standardButtons: StandardButton.Ok
-                        title:      "Tile Set Already Exists"
-                        text:       "Tile Set \"" + setName.text + "\" already exists.\nPlease select a different name."
-                        onYes: {
-                            duplicateName.visible = false
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Rectangle {
-        id:                 _infoView
-        color:              __qgcPal.windowShade
-        width:              parent.width
-        anchors.top:        _offlineMapTopRect.bottom
-        anchors.bottom:     parent.bottom
-        anchors.margins:    ScreenTools.defaultFontPixelWidth
-        visible:            false
-        QGCFlickable {
-            id:                 infoScroll
-            anchors.fill:       parent
-            contentHeight:      infoColumn.height
-            flickableDirection: Flickable.VerticalFlick
-            clip:               true
-            Column {
-                id:             infoColumn
-                width:          parent.width
-                spacing:        ScreenTools.defaultFontPixelHeight
-                Item {
-                    height:     ScreenTools.defaultFontPixelHeight * 0.5
-                    width:      1
-                }
-                Rectangle {
-                    width:      infoWidth
-                    height:     nameLabel.height + (ScreenTools.defaultFontPixelHeight * 2)
-                    color:      __qgcPal.window
-                    radius:     ScreenTools.defaultFontPixelHeight * 0.5
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    QGCLabel {
-                        id:     nameLabel
-                        text:   _offlineMapRoot._currentSelection ? _offlineMapRoot._currentSelection.name : ""
-                        font.pixelSize:   ScreenTools.isAndroid ? ScreenTools.mediumFontPixelSize : ScreenTools.largeFontPixelSize
-                        anchors.centerIn: parent
-                    }
-                }
-                QGCLabel {
-                    id:     descLabel
-                    text:   _offlineMapRoot._currentSelection ? _offlineMapRoot._currentSelection.description : ""
-                    anchors.horizontalCenter: parent.horizontalCenter
-                }
-                Rectangle {
-                    id:         infoRect
-                    width:      infoWidth
-                    height:     infoGrid.height + (ScreenTools.defaultFontPixelHeight * 4)
-                    color:      __qgcPal.window
-                    radius:     ScreenTools.defaultFontPixelHeight * 0.5
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    GridLayout {
-                        id:                 infoGrid
-                        columns:            2
-                        anchors.centerIn:   parent
-                        anchors.margins:    ScreenTools.defaultFontPixelWidth  * 2
-                        rowSpacing:         ScreenTools.defaultFontPixelWidth
-                        columnSpacing:      ScreenTools.defaultFontPixelHeight * 2
-                        QGCLabel {
-                            text:       "Map Type:"
-                            visible:    !isDefaultSet
-                        }
-                        QGCLabel {
-                            text:       _offlineMapRoot._currentSelection ? _offlineMapRoot._currentSelection.mapTypeStr : ""
-                            visible:    !isDefaultSet
-                        }
-                        QGCLabel {
-                            text:       "Min Zoom:"
-                            visible:    !isDefaultSet
-                        }
-                        QGCLabel {
-                            text:       _offlineMapRoot._currentSelection ? _offlineMapRoot._currentSelection.minZoom : ""
-                            visible:    !isDefaultSet
-                        }
-                        QGCLabel {
-                            text:       "Max Zoom:"
-                            visible:    !isDefaultSet
-                        }
-                        QGCLabel {
-                            text:       _offlineMapRoot._currentSelection ? _offlineMapRoot._currentSelection.maxZoom : ""
-                            visible:    !isDefaultSet
-                        }
-                        QGCLabel {
-                            text:       isDefaultSet ? "Default Set Size:" : "Total Size:"
-                        }
-                        QGCLabel {
-                            text:       _offlineMapRoot._currentSelection ? _offlineMapRoot._currentSelection.tilesSizeStr : ""
-                        }
-                        QGCLabel {
-                            text:       isDefaultSet ? "Default Set Tile Count:" : "Total Tile Count:"
-                        }
-                        QGCLabel {
-                            text:       _offlineMapRoot._currentSelection ? _offlineMapRoot._currentSelection.numTilesStr : ""
-                        }
-                        QGCLabel {
-                            text:       isDefaultSet ? "Total Size (All Sets):" : "Downloaded Size:"
-                        }
-                        QGCLabel {
-                            text:       _offlineMapRoot._currentSelection ? _offlineMapRoot._currentSelection.savedSizeStr : ""
-                        }
-                        QGCLabel {
-                            text:       isDefaultSet ? "Total Count (All Sets):" : "Downloaded Count:"
-                        }
-                        QGCLabel {
-                            text:       _offlineMapRoot._currentSelection ? _offlineMapRoot._currentSelection.savedTilesStr : ""
-                        }
-                        QGCLabel {
-                            text:       "Error Count:"
-                            visible:    !isDefaultSet && _offlineMapRoot._currentSelection && !_offlineMapRoot._currentSelection.complete
-                        }
-                        QGCLabel {
-                            text:       _offlineMapRoot._currentSelection ? _offlineMapRoot._currentSelection.errorCountStr : ""
-                            visible:    !isDefaultSet && _offlineMapRoot._currentSelection && !_offlineMapRoot._currentSelection.complete
-                        }
-                    }
-                }
-                Item {
-                    height:     ScreenTools.defaultFontPixelHeight * 0.5
-                    width:      1
-                }
-                Row {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: ScreenTools.defaultFontPixelWidth
-                    QGCButton {
-                        width:      ScreenTools.defaultFontPixelWidth * 18
-                        text:       "Delete"
-                        enabled:    _offlineMapRoot._currentSelection && (!_offlineMapRoot._currentSelection.deleting)
-                        onClicked: {
-                            if(_offlineMapRoot._currentSelection)
-                                deleteDialog.visible = true
-                        }
-                        MessageDialog {
-                            id:         deleteDialog
-                            visible:    false
-                            icon:       StandardIcon.Warning
-                            standardButtons: StandardButton.Yes | StandardButton.No
-                            title:      "Delete Tile Set"
-                            text:       {
-                                if(_offlineMapRoot._currentSelection) {
-                                    var blurb = "Delete " + _offlineMapRoot._currentSelection.name + " and all its tiles.\nIs this really what you want?"
-                                    if(_offlineMapRoot._currentSelection.defaultSet)
-                                        return blurb + "\nNote that deleteting the Default Set deletes all tiles from all sets."
-                                    else
-                                        return blurb
+
+                            Slider {
+                                id:                         sliderMinZoom
+                                anchors.left:               parent.left
+                                anchors.right:              parent.right
+                                height:                     sliderTouchArea * 1.25
+                                minimumValue:               minZoomLevel
+                                maximumValue:               maxZoomLevel
+                                stepSize:                   1
+                                updateValueWhileDragging:   true
+                                property real _savedZoom
+                                Component.onCompleted:      Math.max(sliderMinZoom.value = _map.zoomLevel - 4, 2)
+                                onValueChanged: {
+                                    if(sliderMinZoom.value > sliderMaxZoom.value) {
+                                        sliderMaxZoom.value = sliderMinZoom.value
+                                    }
+                                    handleChanges()
                                 }
-                                return ""
+                                style: SliderStyle {
+                                    groove: Rectangle {
+                                        implicitWidth:  sliderMinZoom.width
+                                        implicitHeight: 4
+                                        color:          qgcPal.colorBlue
+                                        radius:         4
+                                    }
+                                    handle: Rectangle {
+                                        anchors.centerIn: parent
+                                        color:          qgcPal.button
+                                        border.color:   qgcPal.buttonText
+                                        border.width:   1
+                                        implicitWidth:  sliderTouchArea
+                                        implicitHeight: sliderTouchArea
+                                        radius:         sliderTouchArea * 0.5
+                                        Label {
+                                            text:               sliderMinZoom.value
+                                            anchors.centerIn:   parent
+                                            font.family:        ScreenTools.normalFontFamily
+                                            font.pointSize:     ScreenTools.smallFontPointSize
+                                            color:              qgcPal.buttonText
+                                        }
+                                    }
+                                }
+                            } // Slider - min zoom
+
+                            Slider {
+                                id:                         sliderMaxZoom
+                                anchors.left:               parent.left
+                                anchors.right:              parent.right
+                                height:                     sliderTouchArea * 1.25
+                                minimumValue:               minZoomLevel
+                                maximumValue:               maxZoomLevel
+                                stepSize:                   1
+                                updateValueWhileDragging:   true
+                                property real _savedZoom
+                                Component.onCompleted:      Math.min(sliderMaxZoom.value = _map.zoomLevel + 2, 20)
+                                onValueChanged: {
+                                    if(sliderMaxZoom.value < sliderMinZoom.value) {
+                                        sliderMinZoom.value = sliderMaxZoom.value
+                                    }
+                                    handleChanges()
+                                }
+                                style: SliderStyle {
+                                    groove: Rectangle {
+                                        implicitWidth:  sliderMaxZoom.width
+                                        implicitHeight: 4
+                                        color:          qgcPal.colorBlue
+                                        radius:         4
+                                    }
+                                    handle: Rectangle {
+                                        anchors.centerIn: parent
+                                        color:          qgcPal.button
+                                        border.color:   qgcPal.buttonText
+                                        border.width:   1
+                                        implicitWidth:  sliderTouchArea
+                                        implicitHeight: sliderTouchArea
+                                        radius:         sliderTouchArea * 0.5
+                                        Label {
+                                            text:               sliderMaxZoom.value
+                                            anchors.centerIn:   parent
+                                            font.family:        ScreenTools.normalFontFamily
+                                            font.pointSize:     ScreenTools.smallFontPointSize
+                                            color:              qgcPal.buttonText
+                                        }
+                                    }
+                                }
+                            } // Slider - max zoom
+
+                            GridLayout {
+                                columns:    2
+                                rowSpacing: ScreenTools.isTinyScreen ? 0 : ScreenTools.defaultFontPixelHeight * 0.5
+                                QGCLabel {
+                                    text:           qsTr("Tile Count:")
+                                    font.pointSize: _adjustableFontPointSize
+                                }
+                                QGCLabel {
+                                    text:            QGroundControl.mapEngineManager.tileCountStr
+                                    font.pointSize: _adjustableFontPointSize
+                                }
+
+                                QGCLabel {
+                                    text:           qsTr("Est Size:")
+                                    font.pointSize: _adjustableFontPointSize
+                                }
+                                QGCLabel {
+                                    text:           QGroundControl.mapEngineManager.tileSizeStr
+                                    font.pointSize: _adjustableFontPointSize
+                                }
                             }
-                            onYes: {
-                                if(_offlineMapRoot._currentSelection)
-                                    QGroundControl.mapEngineManager.deleteTileSet(_offlineMapRoot._currentSelection)
-                                deleteDialog.visible = false
+                        } // Column - Zoom info
+                    } // Rectangle - Zoom info
+
+                    QGCLabel {
+                        text:       qsTr("Too many tiles")
+                        visible:    _tooManyTiles
+                        color:      qgcPal.warningText
+                        anchors.horizontalCenter: parent.horizontalCenter
+                    }
+
+                    Row {
+                        id: addButtonRow
+                        spacing: ScreenTools.defaultFontPixelWidth
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        QGCButton {
+                            text:       qsTr("Download")
+                            width:      (addNewSetColumn.width * 0.5) - (addButtonRow.spacing * 0.5)
+                            enabled:    !_tooManyTiles && setName.text.length > 0
+                            onClicked: {
+                                if(QGroundControl.mapEngineManager.findName(setName.text)) {
+                                    duplicateName.visible = true
+                                } else {
+                                    QGroundControl.mapEngineManager.startDownload(setName.text, mapType);
+                                    showList()
+                                }
+                            }
+                        }
+                        QGCButton {
+                            text:       qsTr("Cancel")
+                            width:      (addNewSetColumn.width * 0.5) - (addButtonRow.spacing * 0.5)
+                            onClicked: {
                                 showList()
                             }
-                            onNo: {
-                                deleteDialog.visible = false
-                            }
                         }
                     }
-                    QGCButton {
-                        text:       "Resume Download"
-                        width:      ScreenTools.defaultFontPixelWidth * 18
-                        enabled:    _offlineMapRoot._currentSelection && (!_offlineMapRoot._currentSelection.deleting && !_offlineMapRoot._currentSelection.downloading)
-                        visible:    !isDefaultSet && _offlineMapRoot._currentSelection && (!_offlineMapRoot._currentSelection.complete && !_offlineMapRoot._currentSelection.downloading)
-                        onClicked: {
-                            if(_offlineMapRoot._currentSelection)
-                                _offlineMapRoot._currentSelection.resumeDownloadTask()
-                        }
-                    }
-                    QGCButton {
-                        text:       "Cancel Download"
-                        width:      ScreenTools.defaultFontPixelWidth * 18
-                        enabled:    _offlineMapRoot._currentSelection && (!_offlineMapRoot._currentSelection.deleting && _offlineMapRoot._currentSelection.downloading)
-                        visible:    !isDefaultSet && _offlineMapRoot._currentSelection && (!_offlineMapRoot._currentSelection.complete && _offlineMapRoot._currentSelection.downloading)
-                        onClicked: {
-                            if(_offlineMapRoot._currentSelection)
-                                _offlineMapRoot._currentSelection.cancelDownloadTask()
-                        }
-                    }
-                    QGCButton {
-                        text:       "Back"
-                        width:      ScreenTools.defaultFontPixelWidth * 18
-                        onClicked:  showList()
-                    }
-                }
-            }
-        }
-    }
-    Rectangle {
-        id:                 _optionsView
-        color:              __qgcPal.windowShade
-        width:              parent.width
-        anchors.top:        _offlineMapTopRect.bottom
-        anchors.bottom:     parent.bottom
-        anchors.margins:    ScreenTools.defaultFontPixelWidth
-        visible:            false
-        onVisibleChanged: {
-            if(_optionsView.visible) {
-                mapBoxToken.text     = QGroundControl.mapEngineManager.mapboxToken
-                maxCacheSize.text    = QGroundControl.mapEngineManager.maxDiskCache
-                maxCacheMemSize.text = QGroundControl.mapEngineManager.maxMemCache
-            }
-        }
+
+                } // Column
+            } // QGCFlickable
+        } // Rectangle - Add new set dialog
+
         QGCFlickable {
-            id:                 optionsScroll
-            anchors.fill:       parent
-            contentHeight:      optionsColumn.height
-            flickableDirection: Flickable.VerticalFlick
+            id:                 _tileSetList
             clip:               true
+            anchors.margins:    ScreenTools.defaultFontPixelWidth
+            anchors.top:        parent.top
+            anchors.bottom:     _listButtonRow.top
+            anchors.left:       parent.left
+            anchors.right:      parent.right
+            contentHeight:      _cacheList.height
+
             Column {
-                id:             optionsColumn
-                width:          parent.width
-                spacing:        ScreenTools.defaultFontPixelHeight
-                Item {
-                    height:     ScreenTools.defaultFontPixelHeight
-                    width:      1
+                id:         _cacheList
+                width:      Math.min(_tileSetList.width, (ScreenTools.defaultFontPixelWidth  * 50).toFixed(0))
+                spacing:    ScreenTools.defaultFontPixelHeight * 0.5
+                anchors.horizontalCenter: parent.horizontalCenter
+                OfflineMapButton {
+                    id:             firstButton
+                    text:           qsTr("Add New Set")
+                    width:          _cacheList.width
+                    height:         ScreenTools.defaultFontPixelHeight * 2
+                    onClicked: {
+                        offlineMapView._currentSelection = null
+                        addNewSet()
+                    }
                 }
-                Rectangle {
-                    width:      infoWidth
-                    height:     optionsLabel.height + (ScreenTools.defaultFontPixelHeight * 2)
-                    color:      __qgcPal.window
-                    radius:     ScreenTools.defaultFontPixelHeight * 0.5
-                    anchors.horizontalCenter: parent.horizontalCenter
+                Repeater {
+                    model: QGroundControl.mapEngineManager.tileSets
+                    delegate: OfflineMapButton {
+                        text:           object.name
+                        size:           object.downloadStatus
+                        tiles:          object.totalTileCount
+                        complete:       object.complete
+                        width:          firstButton.width
+                        height:         ScreenTools.defaultFontPixelHeight * 2
+                        onClicked: {
+                            offlineMapView._currentSelection = object
+                            showInfo()
+                        }
+                    }
+                }
+            }
+        }
+        Row {
+            id:                 _listButtonRow
+            visible:            _tileSetList.visible
+            spacing:            _margins
+            anchors.bottom:     parent.bottom
+            anchors.margins:    ScreenTools.defaultFontPixelWidth
+            anchors.horizontalCenter: parent.horizontalCenter
+            QGCButton {
+                text:           qsTr("Import")
+                width:          _buttonSize
+                visible:        !ScreenTools.isMobile
+                onClicked: {
+                    QGroundControl.mapEngineManager.importAction = QGCMapEngineManager.ActionNone
+                    rootLoader.sourceComponent = importDialog
+                }
+            }
+            QGCButton {
+                text:           qsTr("Export")
+                width:          _buttonSize
+                visible:        !ScreenTools.isMobile
+                enabled:        QGroundControl.mapEngineManager.tileSets.count > 1
+                onClicked:      showExport()
+            }
+            QGCButton {
+                text:           qsTr("Options")
+                width:          _buttonSize
+                onClicked:      showDialog(optionsDialogComponent, qsTr("Offline Maps Options"), qgcView.showDialogDefaultWidth, StandardButton.Save | StandardButton.Cancel)
+            }
+        }
+
+        //-- Export Tile Sets
+        QGCFlickable {
+            id:                 _exporTiles
+            clip:               true
+            visible:            false
+            anchors.margins:    ScreenTools.defaultFontPixelWidth
+            anchors.top:        parent.top
+            anchors.bottom:     _exportButtonRow.top
+            anchors.left:       parent.left
+            anchors.right:      parent.right
+            contentHeight:      _exportList.height
+            Column {
+                id:         _exportList
+                width:      Math.min(_exporTiles.width, (ScreenTools.defaultFontPixelWidth  * 50).toFixed(0))
+                spacing:    ScreenTools.defaultFontPixelHeight * 0.5
+                anchors.horizontalCenter: parent.horizontalCenter
+                QGCLabel {
+                    text:           qsTr("Select Tile Sets to Export")
+                    font.pointSize: ScreenTools.mediumFontPointSize
+                }
+                Item { width: 1; height: ScreenTools.defaultFontPixelHeight; }
+                Repeater {
+                    model: QGroundControl.mapEngineManager.tileSets
+                    delegate: QGCCheckBox {
+                        text:           object.name
+                        checked:        object.selected
+                        onClicked: {
+                            object.selected = checked
+                        }
+                    }
+                }
+            }
+        }
+        Row {
+            id:                 _exportButtonRow
+            visible:            _exporTiles.visible
+            spacing:            _margins
+            anchors.bottom:     parent.bottom
+            anchors.margins:    ScreenTools.defaultFontPixelWidth
+            anchors.horizontalCenter: parent.horizontalCenter
+            QGCButton {
+                text:           qsTr("Select All")
+                width:          _bigButtonSize
+                onClicked:      QGroundControl.mapEngineManager.selectAll()
+            }
+            QGCButton {
+                text:           qsTr("Select None")
+                width:          _bigButtonSize
+                onClicked:      QGroundControl.mapEngineManager.selectNone()
+            }
+            QGCButton {
+                text:           qsTr("Export")
+                width:          _bigButtonSize
+                enabled:        QGroundControl.mapEngineManager.selectedCount > 0
+                onClicked: {
+                    showList();
+                    if(QGroundControl.mapEngineManager.exportSets()) {
+                        rootLoader.sourceComponent = exportToDiskProgress
+                    }
+                }
+            }
+            QGCButton {
+                text:           qsTr("Cancel")
+                width:          _bigButtonSize
+                onClicked:       showList()
+            }
+        }
+    } // QGCViewPanel
+
+    Component {
+        id: exportToDiskProgress
+        Rectangle {
+            width:      mainWindow.width
+            height:     mainWindow.height
+            color:      "black"
+            anchors.centerIn: parent
+            Rectangle {
+                width:  parent.width  * 0.5
+                height: exportCol.height * 1.25
+                radius: ScreenTools.defaultFontPixelWidth
+                color:  qgcPal.windowShadeDark
+                border.color: qgcPal.text
+                anchors.centerIn: parent
+                Column {
+                    id:                 exportCol
+                    spacing:            ScreenTools.defaultFontPixelHeight
+                    width:              parent.width
+                    anchors.centerIn:   parent
                     QGCLabel {
-                        id:     optionsLabel
-                        text:   "Offline Map Options"
-                        font.pixelSize:     ScreenTools.isAndroid ? ScreenTools.mediumFontPixelSize : ScreenTools.largeFontPixelSize
-                        anchors.centerIn:   parent
+                        text:               QGroundControl.mapEngineManager.importAction === QGCMapEngineManager.ActionExporting ? qsTr("Tile Set Export Progress") : qsTr("Tile Set Export Completed")
+                        font.family:        ScreenTools.demiboldFontFamily
+                        font.pointSize:     ScreenTools.mediumFontPointSize
+                        anchors.horizontalCenter: parent.horizontalCenter
                     }
-                }
-                Rectangle {
-                    id:         optionsRect
-                    width:      optionsGrid.width  + (ScreenTools.defaultFontPixelWidth * 4)
-                    height:     optionsGrid.height + (ScreenTools.defaultFontPixelHeight * 4)
-                    color:      __qgcPal.window
-                    radius:     ScreenTools.defaultFontPixelHeight * 0.5
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    GridLayout {
-                        id:                 optionsGrid
-                        columns:            2
-                        anchors.centerIn:   parent
-                        anchors.margins:    ScreenTools.defaultFontPixelWidth  * 2
-                        rowSpacing:         ScreenTools.defaultFontPixelWidth  * 1.5
-                        columnSpacing:      ScreenTools.defaultFontPixelHeight * 2
-                        QGCLabel {
-                            text:       "Max Cache Disk Size (MB):"
-                        }
-                        QGCTextField {
-                            id:             maxCacheSize
-                            maximumLength:  6
-                            inputMethodHints: Qt.ImhDigitsOnly
-                            validator: IntValidator {bottom: 1; top: 262144;}
-                        }
-                        QGCLabel {
-                            text:       "Max Cache Memory Size (MB):"
-                        }
-                        QGCTextField {
-                            id:             maxCacheMemSize
-                            maximumLength:  4
-                            inputMethodHints: Qt.ImhDigitsOnly
-                            validator: IntValidator {bottom: 1; top: 4096;}
-                        }
-                        Item {
-                            Layout.columnSpan:  2
-                            Layout.fillWidth:   true
-                            implicitHeight:     ScreenTools.defaultFontPixelHeight * 1.5
-                            QGCLabel {
-                                anchors.centerIn: parent
-                                text: "Memory cache changes require a restart to take effect."
-                                font.pixelSize: ScreenTools.defaultFontPixelSize * 0.85
-                            }
-                        }
-                        Rectangle {
-                            Layout.columnSpan:  2
-                            Layout.fillWidth:   true
-                            implicitHeight:     1
-                            color:              __qgcPal.text
-                        }
-                        QGCLabel {
-                            text: "MapBox Access Token"
-                        }
-                        QGCTextField {
-                            id:                 mapBoxToken
-                            Layout.fillWidth:   true
-                            maximumLength:      256
-                            implicitWidth :     ScreenTools.defaultFontPixelWidth * 30
-                        }
-                        Item {
-                            Layout.columnSpan:  2
-                            Layout.fillWidth:   true
-                            implicitHeight:     ScreenTools.defaultFontPixelHeight * 1.5
-                            QGCLabel {
-                                anchors.centerIn: parent
-                                text: "With an access token, you can use MapBox Maps."
-                                font.pixelSize: ScreenTools.defaultFontPixelSize * 0.85
-                            }
-                        }
+                    ProgressBar {
+                        id:             progressBar
+                        width:          parent.width * 0.45
+                        maximumValue:   100
+                        value:          QGroundControl.mapEngineManager.actionProgress
+                        anchors.horizontalCenter: parent.horizontalCenter
                     }
-                }
-                Row {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: ScreenTools.defaultFontPixelWidth
-                    QGCButton {
-                        text:       "Save"
-                        width:      ScreenTools.defaultFontPixelWidth * 18
-                        onClicked:  {
-                            QGroundControl.mapEngineManager.mapboxToken  = mapBoxToken.text
-                            QGroundControl.mapEngineManager.maxDiskCache = parseInt(maxCacheSize.text)
-                            QGroundControl.mapEngineManager.maxMemCache  = parseInt(maxCacheMemSize.text)
-                            showList()
-                        }
+                    BusyIndicator {
+                        visible:        QGroundControl.mapEngineManager ? QGroundControl.mapEngineManager.importAction === QGCMapEngineManager.ActionExporting : false
+                        running:        QGroundControl.mapEngineManager ? QGroundControl.mapEngineManager.importAction === QGCMapEngineManager.ActionExporting : false
+                        width:          exportCloseButton.height
+                        height:         exportCloseButton.height
+                        anchors.horizontalCenter: parent.horizontalCenter
                     }
                     QGCButton {
-                        text:       "Cancel"
-                        width:      ScreenTools.defaultFontPixelWidth * 18
-                        onClicked:  {
-                            showList()
+                        id:             exportCloseButton
+                        text:           qsTr("Close")
+                        width:          _buttonSize
+                        visible:        !QGroundControl.mapEngineManager.exporting
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        onClicked: {
+                            rootLoader.sourceComponent = null
                         }
                     }
                 }
             }
         }
     }
-}
+
+    Component {
+        id: importDialog
+        Rectangle {
+            width:      mainWindow.width
+            height:     mainWindow.height
+            color:      "black"
+            anchors.centerIn: parent
+            Rectangle {
+                width:  parent.width  * 0.5
+                height: importCol.height * 1.5
+                radius: ScreenTools.defaultFontPixelWidth
+                color:  qgcPal.windowShadeDark
+                border.color: qgcPal.text
+                anchors.centerIn: parent
+                Column {
+                    id:                 importCol
+                    spacing:            ScreenTools.defaultFontPixelHeight
+                    width:              parent.width
+                    anchors.centerIn:   parent
+                    QGCLabel {
+                        text: {
+                            if(QGroundControl.mapEngineManager.importAction === QGCMapEngineManager.ActionNone) {
+                                return qsTr("Map Tile Set Import");
+                            } else if(QGroundControl.mapEngineManager.importAction === QGCMapEngineManager.ActionImporting) {
+                                return qsTr("Map Tile Set Import Progress");
+                            } else {
+                                return qsTr("Map Tile Set Import Completed");
+                            }
+                        }
+                        font.family:        ScreenTools.demiboldFontFamily
+                        font.pointSize:     ScreenTools.mediumFontPointSize
+                        anchors.horizontalCenter: parent.horizontalCenter
+                    }
+                    ProgressBar {
+                        id:             progressBar
+                        width:          parent.width * 0.45
+                        maximumValue:   100
+                        visible:        QGroundControl.mapEngineManager.importAction === QGCMapEngineManager.ActionImporting
+                        value:          QGroundControl.mapEngineManager.actionProgress
+                        anchors.horizontalCenter: parent.horizontalCenter
+                    }
+                    BusyIndicator {
+                        visible:        QGroundControl.mapEngineManager.importAction === QGCMapEngineManager.ActionImporting
+                        running:        QGroundControl.mapEngineManager.importAction === QGCMapEngineManager.ActionImporting
+                        width:          ScreenTools.defaultFontPixelWidth * 2
+                        height:         width
+                        anchors.horizontalCenter: parent.horizontalCenter
+                    }
+                    ExclusiveGroup { id: radioGroup }
+                    Column {
+                        spacing:            ScreenTools.defaultFontPixelHeight
+                        width:              ScreenTools.defaultFontPixelWidth * 24
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        QGCRadioButton {
+                            exclusiveGroup: radioGroup
+                            text:           qsTr("Append to existing set")
+                            checked:        !QGroundControl.mapEngineManager.importReplace
+                            onClicked:      QGroundControl.mapEngineManager.importReplace = !checked
+                            visible:        QGroundControl.mapEngineManager.importAction === QGCMapEngineManager.ActionNone
+                        }
+                        QGCRadioButton {
+                            exclusiveGroup: radioGroup
+                            text:           qsTr("Replace existing set")
+                            checked:        QGroundControl.mapEngineManager.importReplace
+                            onClicked:      QGroundControl.mapEngineManager.importReplace = checked
+                            visible:        QGroundControl.mapEngineManager.importAction === QGCMapEngineManager.ActionNone
+                        }
+                    }
+                    QGCButton {
+                        text:           qsTr("Close")
+                        width:          _bigButtonSize * 1.25
+                        visible:        QGroundControl.mapEngineManager.importAction === QGCMapEngineManager.ActionDone
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        onClicked: {
+                            showList();
+                            rootLoader.sourceComponent = null
+                        }
+                    }
+                    Row {
+                        spacing:            _margins
+                        visible:            QGroundControl.mapEngineManager.importAction === QGCMapEngineManager.ActionNone
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        QGCButton {
+                            text:           qsTr("Import")
+                            width:          _bigButtonSize * 1.25
+                            onClicked: {
+                                if(!QGroundControl.mapEngineManager.importSets()) {
+                                    showList();
+                                    rootLoader.sourceComponent = null
+                                }
+                            }
+                        }
+                        QGCButton {
+                            text:           qsTr("Cancel")
+                            width:          _bigButtonSize * 1.25
+                            onClicked: {
+                                showList();
+                                rootLoader.sourceComponent = null
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+} // QGCView

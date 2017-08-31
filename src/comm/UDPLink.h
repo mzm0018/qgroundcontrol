@@ -1,25 +1,12 @@
-/*=====================================================================
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
 
-QGroundControl Open Source Ground Control Station
-
-(c) 2009 - 2015 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
-
-This file is part of the QGROUNDCONTROL project
-
-    QGROUNDCONTROL is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    QGROUNDCONTROL is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
-
-======================================================================*/
 
 /*!
  * @file
@@ -46,9 +33,6 @@ This file is part of the QGROUNDCONTROL project
 
 #include "QGCConfig.h"
 #include "LinkManager.h"
-
-#define QGC_UDP_LOCAL_PORT  14550
-#define QGC_UDP_TARGET_PORT 14555
 
 class UDPConfiguration : public LinkConfiguration
 {
@@ -144,12 +128,13 @@ public:
     QStringList hostList    () { return _hostList; }
 
     /// From LinkConfiguration
-    LinkType    type            () { return LinkConfiguration::TypeUdp; }
-    void        copyFrom        (LinkConfiguration* source);
-    void        loadSettings    (QSettings& settings, const QString& root);
-    void        saveSettings    (QSettings& settings, const QString& root);
-    void        updateSettings  ();
-    QString     settingsURL     () { return "UdpSettings.qml"; }
+    LinkType    type                 () { return LinkConfiguration::TypeUdp; }
+    void        copyFrom             (LinkConfiguration* source);
+    void        loadSettings         (QSettings& settings, const QString& root);
+    void        saveSettings         (QSettings& settings, const QString& root);
+    void        updateSettings       ();
+    bool        isAutoConnectAllowed () { return true; }
+    QString     settingsURL          () { return "UdpSettings.qml"; }
 
 signals:
     void localPortChanged   ();
@@ -190,10 +175,7 @@ public:
     bool connect(void);
     bool disconnect(void);
 
-    LinkConfiguration* getLinkConfiguration() { return _config; }
-
 public slots:
-
     /*! @brief Add a new host to broadcast messages to */
     void addHost    (const QString& host);
     /*! @brief Remove a host from broadcasting messages to */
@@ -201,23 +183,12 @@ public slots:
 
     void readBytes();
 
-    /*!
-     * @brief Write a number of bytes to the interface.
-     *
-     * @param data Pointer to the data byte array
-     * @param size The size of the bytes array
-     **/
-    void writeBytes(const char* data, qint64 length);
-
-protected:
-
-    QUdpSocket*         _socket;
-    UDPConfiguration*   _config;
-    bool                _connectState;
+private slots:
+    void _writeBytes(const QByteArray data);
 
 private:
     // Links are only created/destroyed by LinkManager so constructor/destructor is not public
-    UDPLink(UDPConfiguration* config);
+    UDPLink(SharedLinkConfigurationPointer& config);
     ~UDPLink();
 
     // From LinkInterface
@@ -235,12 +206,9 @@ private:
 #endif
 
     bool                _running;
-    QMutex              _mutex;
-    QQueue<QByteArray*> _outQueue;
-
-    bool _dequeBytes    ();
-    void _sendBytes     (const char* data, qint64 size);
-
+    QUdpSocket*         _socket;
+    UDPConfiguration*   _udpConfig;
+    bool                _connectState;
 };
 
 #endif // UDPLINK_H

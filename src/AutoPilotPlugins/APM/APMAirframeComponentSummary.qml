@@ -1,4 +1,4 @@
-import QtQuick 2.2
+import QtQuick 2.3
 import QtQuick.Controls 1.2
 
 import QGroundControl.FactSystem 1.0
@@ -18,22 +18,37 @@ FactPanel {
         factPanel:  panel
     }
 
-    property Fact sysIdFact:        controller.getParameterFact(-1, "FRAME")
-
+    property bool _useOldFrameParam:    controller.parameterExists(-1, "FRAME")
+    property Fact _oldFrameParam:       controller.getParameterFact(-1, "FRAME", false)
+    property Fact _newFrameParam:       controller.getParameterFact(-1, "FRAME_CLASS", false)
+    property Fact _frameTypeParam:      controller.getParameterFact(-1, "FRAME_TYPE", false)
 
     Column {
-        anchors.fill: parent
-        anchors.margins: 8
+        anchors.fill:       parent
 
         VehicleSummaryRow {
-            id: nameRow;
-            labelText: "Frame Type:"
-            valueText: sysIdFact.valueString === "0" ? "Plus"
-                     : sysIdFact.valueString === "1" ? "X"
-                     : sysIdFact.valueString === "2" ? "V"
-                     : sysIdFact.valueString == "3" ? "H"
-                     :/* Fact.value == 10 */ "New Y6";
+            labelText:  qsTr("Frame Type:")
+            valueText:  controller.currentAirframeTypeName() + " " + _oldFrameParam.enumStringValue
+            visible:    _useOldFrameParam
+        }
 
+        VehicleSummaryRow {
+            labelText:  qsTr("Frame Class:")
+            valueText:  _newFrameParam.enumStringValue
+            visible:    !_useOldFrameParam
+
+        }
+
+        VehicleSummaryRow {
+            labelText:  qsTr("Frame Type:")
+            valueText:  _frameTypeParam.enumStringValue
+            visible:    !_useOldFrameParam
+
+        }
+
+        VehicleSummaryRow {
+            labelText: qsTr("Firmware Version:")
+            valueText: activeVehicle.firmwareMajorVersion == -1 ? qsTr("Unknown") : activeVehicle.firmwareMajorVersion + "." + activeVehicle.firmwareMinorVersion + "." + activeVehicle.firmwarePatchVersion + activeVehicle.firmwareVersionTypeString
         }
     }
 }

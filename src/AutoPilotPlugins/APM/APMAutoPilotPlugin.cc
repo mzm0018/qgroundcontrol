@@ -1,28 +1,14 @@
-/*=====================================================================
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
 
- QGroundControl Open Source Ground Control Station
-
- (c) 2009 - 2015 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
-
- This file is part of the QGROUNDCONTROL project
-
- QGROUNDCONTROL is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
-
- QGROUNDCONTROL is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
-
- ======================================================================*/
 
 #include "APMAutoPilotPlugin.h"
-#include "AutoPilotPluginManager.h"
 #include "UAS.h"
 #include "FirmwarePlugin/APM/APMParameterMetaData.h"  // FIXME: Hack
 #include "FirmwarePlugin/APM/APMFirmwarePlugin.h"  // FIXME: Hack
@@ -30,16 +16,17 @@
 #include "VehicleComponent.h"
 #include "APMAirframeComponent.h"
 #include "APMAirframeComponentAirframes.h"
-#include "APMAirframeComponentController.h"
 #include "APMAirframeLoader.h"
-#include "APMRemoteParamsDownloader.h"
 #include "APMFlightModesComponent.h"
 #include "APMRadioComponent.h"
 #include "APMSafetyComponent.h"
 #include "APMTuningComponent.h"
 #include "APMSensorsComponent.h"
 #include "APMPowerComponent.h"
+#include "MotorComponent.h"
 #include "APMCameraComponent.h"
+#include "APMLightsComponent.h"
+#include "APMSubFrameComponent.h"
 #include "ESP8266Component.h"
 
 /// This is the AutoPilotPlugin implementatin for the MAV_AUTOPILOT_ARDUPILOT type.
@@ -48,8 +35,14 @@ APMAutoPilotPlugin::APMAutoPilotPlugin(Vehicle* vehicle, QObject* parent)
     , _incorrectParameterVersion(false)
     , _airframeComponent(NULL)
     , _cameraComponent(NULL)
+    , _lightsComponent(NULL)
+    , _subFrameComponent(NULL)
     , _flightModesComponent(NULL)
     , _powerComponent(NULL)
+#if 0
+        // Temporarily removed, waiting for new command implementation
+    , _motorComponent(NULL)
+#endif
     , _radioComponent(NULL)
     , _safetyComponent(NULL)
     , _sensorsComponent(NULL)
@@ -68,20 +61,23 @@ APMAutoPilotPlugin::~APMAutoPilotPlugin()
 const QVariantList& APMAutoPilotPlugin::vehicleComponents(void)
 {
     if (_components.count() == 0 && !_incorrectParameterVersion) {
-        Q_ASSERT(_vehicle);
-
-        if (parametersReady()) {
+        if (_vehicle->parameterManager()->parametersReady()) {
             _airframeComponent = new APMAirframeComponent(_vehicle, this);
             _airframeComponent->setupTriggerSignals();
             _components.append(QVariant::fromValue((VehicleComponent*)_airframeComponent));
 
-            _radioComponent = new APMRadioComponent(_vehicle, this);
-            _radioComponent->setupTriggerSignals();
-            _components.append(QVariant::fromValue((VehicleComponent*)_radioComponent));
+            if ( _vehicle->supportsRadio() ) {
+                _radioComponent = new APMRadioComponent(_vehicle, this);
+                _radioComponent->setupTriggerSignals();
+                _components.append(QVariant::fromValue((VehicleComponent*)_radioComponent));
+            }
 
-            _flightModesComponent = new APMFlightModesComponent(_vehicle, this);
-            _flightModesComponent->setupTriggerSignals();
-            _components.append(QVariant::fromValue((VehicleComponent*)_flightModesComponent));
+            // No flight modes component for Sub versions 3.5 and up
+            if (!_vehicle->sub() || (_vehicle->firmwareMajorVersion() == 3 && _vehicle->firmwareMinorVersion() <= 4)) {
+                _flightModesComponent = new APMFlightModesComponent(_vehicle, this);
+                _flightModesComponent->setupTriggerSignals();
+                _components.append(QVariant::fromValue((VehicleComponent*)_flightModesComponent));
+            }
 
             _sensorsComponent = new APMSensorsComponent(_vehicle, this);
             _sensorsComponent->setupTriggerSignals();
@@ -90,6 +86,16 @@ const QVariantList& APMAutoPilotPlugin::vehicleComponents(void)
             _powerComponent = new APMPowerComponent(_vehicle, this);
             _powerComponent->setupTriggerSignals();
             _components.append(QVariant::fromValue((VehicleComponent*)_powerComponent));
+
+#if 0
+    // Temporarily removed, waiting for new command implementation
+
+            if (_vehicle->multiRotor() || _vehicle->vtol()) {
+                _motorComponent = new MotorComponent(_vehicle, this);
+                _motorComponent->setupTriggerSignals();
+                _components.append(QVariant::fromValue((VehicleComponent*)_motorComponent));
+            }
+#endif
 
             _safetyComponent = new APMSafetyComponent(_vehicle, this);
             _safetyComponent->setupTriggerSignals();
@@ -103,8 +109,20 @@ const QVariantList& APMAutoPilotPlugin::vehicleComponents(void)
             _cameraComponent->setupTriggerSignals();
             _components.append(QVariant::fromValue((VehicleComponent*)_cameraComponent));
 
+            if (_vehicle->sub()) {
+                _lightsComponent = new APMLightsComponent(_vehicle, this);
+                _lightsComponent->setupTriggerSignals();
+                _components.append(QVariant::fromValue((VehicleComponent*)_lightsComponent));
+
+                if(_vehicle->firmwareMajorVersion() > 3 || (_vehicle->firmwareMajorVersion() == 3 && _vehicle->firmwareMinorVersion() >= 5)) {
+                    _subFrameComponent = new APMSubFrameComponent(_vehicle, this);
+                    _subFrameComponent->setupTriggerSignals();
+                    _components.append(QVariant::fromValue((VehicleComponent*)_subFrameComponent));
+                }
+            }
+
             //-- Is there an ESP8266 Connected?
-            if(factExists(FactSystem::ParameterProvider, MAV_COMP_ID_UDP_BRIDGE, "SW_VER")) {
+            if(_vehicle->parameterManager()->parameterExists(MAV_COMP_ID_UDP_BRIDGE, "SW_VER")) {
                 _esp8266Component = new ESP8266Component(_vehicle, this);
                 _esp8266Component->setupTriggerSignals();
                 _components.append(QVariant::fromValue((VehicleComponent*)_esp8266Component));
@@ -117,24 +135,37 @@ const QVariantList& APMAutoPilotPlugin::vehicleComponents(void)
     return _components;
 }
 
-/// This will perform various checks prior to signalling that the plug in ready
-void APMAutoPilotPlugin::_parametersReadyPreChecks(bool missingParameters)
+QString APMAutoPilotPlugin::prerequisiteSetup(VehicleComponent* component) const
 {
-#if 0
-    I believe APM has parameter version stamp, we should check that
+    bool requiresAirframeCheck = false;
 
-            // Check for older parameter version set
-            // FIXME: Firmware is moving to version stamp parameter set. Once that is complete the version stamp
-            // should be used instead.
-            if (parameterExists(FactSystem::defaultComponentId, "SENS_GYRO_XOFF")) {
-        _incorrectParameterVersion = true;
-        qgcApp()->showMessage("This version of GroundControl can only perform vehicle setup on a newer version of firmware. "
-                              "Please perform a Firmware Upgrade if you wish to use Vehicle Setup.");
+    if (qobject_cast<const APMFlightModesComponent*>(component)) {
+        if (_airframeComponent && !_airframeComponent->setupComplete()) {
+            return _airframeComponent->name();
+        }
+        if (_radioComponent && !_radioComponent->setupComplete()) {
+            return _radioComponent->name();
+        }
+        requiresAirframeCheck = true;
+    } else if (qobject_cast<const APMRadioComponent*>(component)) {
+        requiresAirframeCheck = true;
+    } else if (qobject_cast<const APMCameraComponent*>(component)) {
+        requiresAirframeCheck = true;
+    } else if (qobject_cast<const APMPowerComponent*>(component)) {
+        requiresAirframeCheck = true;
+    } else if (qobject_cast<const APMSafetyComponent*>(component)) {
+        requiresAirframeCheck = true;
+    } else if (qobject_cast<const APMTuningComponent*>(component)) {
+        requiresAirframeCheck = true;
+    } else if (qobject_cast<const APMSensorsComponent*>(component)) {
+        requiresAirframeCheck = true;
     }
-#endif
-    Q_UNUSED(missingParameters);
-    _parametersReady = true;
-    _missingParameters = false; // we apply only the parameters that do exists on the FactSystem.
-    emit missingParametersChanged(_missingParameters);
-    emit parametersReadyChanged(_parametersReady);
+
+    if (requiresAirframeCheck) {
+        if (_airframeComponent && !_airframeComponent->setupComplete()) {
+            return _airframeComponent->name();
+        }
+    }
+
+    return QString();
 }

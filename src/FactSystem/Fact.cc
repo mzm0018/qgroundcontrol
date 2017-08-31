@@ -1,25 +1,12 @@
-/*=====================================================================
- 
- QGroundControl Open Source Ground Control Station
- 
- (c) 2009 - 2014 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- 
- This file is part of the QGROUNDCONTROL project
- 
- QGROUNDCONTROL is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
- 
- QGROUNDCONTROL is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
- 
- You should have received a copy of the GNU General Public License
- along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
- 
- ======================================================================*/
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
+
 
 /// @file
 ///     @author Don Gagne <don@thegagnes.com>
@@ -28,6 +15,7 @@
 #include "QGCMAVLink.h"
 
 #include <QtQml>
+#include <QQmlEngine>
 
 Fact::Fact(QObject* parent)
     : QObject(parent)
@@ -40,6 +28,9 @@ Fact::Fact(QObject* parent)
 {    
     FactMetaData* metaData = new FactMetaData(_type, this);
     setMetaData(metaData);
+
+    // Better sage than sorry on object ownership
+    QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
 }
 
 Fact::Fact(int componentId, QString name, FactMetaData::ValueType_t type, QObject* parent)
@@ -54,12 +45,14 @@ Fact::Fact(int componentId, QString name, FactMetaData::ValueType_t type, QObjec
 {
     FactMetaData* metaData = new FactMetaData(_type, this);
     setMetaData(metaData);
+    QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
 }
 
 Fact::Fact(const Fact& other, QObject* parent)
     : QObject(parent)
 {
     *this = other;
+    QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
 }
 
 const Fact& Fact::operator=(const Fact& other)
@@ -90,6 +83,7 @@ void Fact::forceSetRawValue(const QVariant& value)
             _rawValue.setValue(typedValue);
             _sendValueChangedSignal(cookedValue());
             emit _containerRawValueChanged(rawValue());
+            emit rawValueChanged(_rawValue);
         }
     } else {
         qWarning() << "Meta data pointer missing";
@@ -107,6 +101,7 @@ void Fact::setRawValue(const QVariant& value)
                 _rawValue.setValue(typedValue);
                 _sendValueChangedSignal(cookedValue());
                 emit _containerRawValueChanged(rawValue());
+                emit rawValueChanged(_rawValue);
             }
         }
     } else {
@@ -149,6 +144,7 @@ void Fact::_containerSetRawValue(const QVariant& value)
     _rawValue = value;
     _sendValueChangedSignal(cookedValue());
     emit vehicleUpdated(_rawValue);
+    emit rawValueChanged(_rawValue);
 }
 
 QString Fact::name(void) const
@@ -271,6 +267,18 @@ QString Fact::_variantToString(const QVariant& variant, int decimalPlaces) const
             valueString = QStringLiteral("--.--");
         } else {
             valueString = QString("%1").arg(dValue, 0, 'f', decimalPlaces);
+        }
+    }
+        break;
+    case FactMetaData::valueTypeElapsedTimeInSeconds:
+    {
+        double dValue = variant.toDouble();
+        if (qIsNaN(dValue)) {
+            valueString = QStringLiteral("--:--:--");
+        } else {
+            QTime time(0, 0, 0, 0);
+            time = time.addSecs(dValue);
+            valueString = time.toString(QStringLiteral("hh:mm:ss"));
         }
     }
         break;

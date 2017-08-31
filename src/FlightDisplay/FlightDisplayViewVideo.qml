@@ -1,28 +1,15 @@
-/*=====================================================================
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
 
-QGroundControl Open Source Ground Control Station
 
-(c) 2009, 2015 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
-
-This file is part of the QGROUNDCONTROL project
-
-    QGROUNDCONTROL is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    QGROUNDCONTROL is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
-
-======================================================================*/
-
-import QtQuick                      2.4
-import QtQuick.Controls             1.3
+import QtQuick                      2.3
+import QtQuick.Controls             1.2
 
 import QGroundControl               1.0
 import QGroundControl.FlightDisplay 1.0
@@ -36,36 +23,73 @@ import QGroundControl.Controllers   1.0
 
 Item {
     id: root
+    property double _ar:            QGroundControl.settingsManager.videoSettings.aspectRatio.rawValue
+    property bool   _showGrid:      QGroundControl.settingsManager.videoSettings.gridLines.rawValue > 0
+    property var    _videoReceiver: QGroundControl.videoManager.videoReceiver
+
     Rectangle {
         id:             noVideo
         anchors.fill:   parent
         color:          Qt.rgba(0,0,0,0.75)
-        visible:        !_controller.videoRunning
+        visible:        !(_videoReceiver && _videoReceiver.videoRunning)
         QGCLabel {
-            text:               "NO VIDEO"
-            font.weight:        Font.DemiBold
+            text:               qsTr("WAITING FOR VIDEO")
+            font.family:        ScreenTools.demiboldFontFamily
             color:              "white"
-            font.pixelSize:     _mainIsMap ? 12 * ScreenTools.fontHRatio : 20 * ScreenTools.fontHRatio
+            font.pointSize:     _mainIsMap ? ScreenTools.smallFontPointSize : ScreenTools.largeFontPointSize
             anchors.centerIn:   parent
         }
     }
-    QGCVideoBackground {
+    Rectangle {
         anchors.fill:   parent
-        display:        _controller.videoSurface
-        receiver:       _controller.videoReceiver
-        visible:        _controller.videoRunning
-        runVideo:       true
-        /* TODO: Come up with a way to make this an option
-        QGCAttitudeHUD {
-            id:                 attitudeHUD
-            visible:            !_mainIsMap
-            rollAngle:          _roll
-            pitchAngle:         _pitch
-            width:              ScreenTools.defaultFontPixelSize * (30)
-            height:             ScreenTools.defaultFontPixelSize * (30)
-            active:             QGroundControl.multiVehicleManager.activeVehicleAvailable
-            z:                  QGroundControl.zOrderWidgets
+        color:          "black"
+        visible:        _videoReceiver && _videoReceiver.videoRunning
+        QGCVideoBackground {
+            id:             videoContent
+            height:         parent.height
+            width:          _ar != 0.0 ? height * _ar : parent.width
+            anchors.centerIn: parent
+            receiver:       _videoReceiver
+            display:        _videoReceiver && _videoReceiver.videoSurface
+            visible:        _videoReceiver && _videoReceiver.videoRunning
+            Connections {
+                target:         _videoReceiver
+                onImageFileChanged: {
+                    videoContent.grabToImage(function(result) {
+                        if (!result.saveToFile(_videoReceiver.imageFile)) {
+                            console.error('Error capturing video frame');
+                        }
+                    });
+                }
+            }
+            Rectangle {
+                color:  Qt.rgba(1,1,1,0.5)
+                height: parent.height
+                width:  1
+                x:      parent.width * 0.33
+                visible: _showGrid
+            }
+            Rectangle {
+                color:  Qt.rgba(1,1,1,0.5)
+                height: parent.height
+                width:  1
+                x:      parent.width * 0.66
+                visible: _showGrid
+            }
+            Rectangle {
+                color:  Qt.rgba(1,1,1,0.5)
+                width:  parent.width
+                height: 1
+                y:      parent.height * 0.33
+                visible: _showGrid
+            }
+            Rectangle {
+                color:  Qt.rgba(1,1,1,0.5)
+                width:  parent.width
+                height: 1
+                y:      parent.height * 0.66
+                visible: _showGrid
+            }
         }
-        */
     }
 }

@@ -1,25 +1,12 @@
-/*=====================================================================
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
 
-QGroundControl Open Source Ground Control Station
-
-(c) 2009 - 2011 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
-
-This file is part of the QGROUNDCONTROL project
-
-    QGROUNDCONTROL is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    QGROUNDCONTROL is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
-
-======================================================================*/
 
 /**
  * @file
@@ -43,12 +30,12 @@ This file is part of the QGROUNDCONTROL project
 
 #include "QGCFlightGearLink.h"
 #include "QGC.h"
-#include "QGCFileDialog.h"
+#include "QGCQFileDialog.h"
 #include "QGCMessageBox.h"
-#include "HomePositionManager.h"
 #include "QGCApplication.h"
 #include "Vehicle.h"
 #include "UAS.h"
+#include "QGroundControlQmlGlobal.h"
 
 // FlightGear _fgProcess start and connection is quite fragile. Uncomment the define below to get higher level of debug output
 // for tracking down problems.
@@ -81,13 +68,13 @@ QGCFlightGearLink::QGCFlightGearLink(Vehicle* vehicle, QString startupArguments,
 
 QGCFlightGearLink::~QGCFlightGearLink()
 {   //do not disconnect unless it is connected.
-    //disconnectSimulation will delete the memory that was allocated for proces, terraSync and _udpCommSocket
+    //disconnectSimulation will delete the memory that was allocated for process, terraSync and _udpCommSocket
     if(connectState){
        disconnectSimulation();
     }
 }
 
-/// @brief Runs the simulation thread. We do setup work here which needs to happen in the seperate thread.
+/// @brief Runs the simulation thread. We do setup work here which needs to happen in the separate thread.
 void QGCFlightGearLink::run()
 {
     Q_ASSERT(_vehicle);
@@ -230,27 +217,27 @@ void QGCFlightGearLink::updateControls(quint64 time, float rollAilerons, float p
     Q_UNUSED(systemMode);
     Q_UNUSED(navMode);
 
-    if(!isnan(rollAilerons) && !isnan(pitchElevator) && !isnan(yawRudder) && !isnan(throttle))
+    if(!qIsNaN(rollAilerons) && !qIsNaN(pitchElevator) && !qIsNaN(yawRudder) && !qIsNaN(throttle))
     {
         QString state("%1\t%2\t%3\t%4\t%5\n");
         state = state.arg(rollAilerons).arg(pitchElevator).arg(yawRudder).arg(true).arg(throttle);
-        writeBytes(state.toLatin1().constData(), state.length());
+        emit _invokeWriteBytes(state.toLatin1());
         //qDebug() << "Updated controls" << rollAilerons << pitchElevator << yawRudder << throttle;
         //qDebug() << "Updated controls" << state;
     }
     else
     {
-        qDebug() << "HIL: Got NaN values from the hardware: isnan output: roll: " << isnan(rollAilerons) << ", pitch: " << isnan(pitchElevator) << ", yaw: " << isnan(yawRudder) << ", throttle: " << isnan(throttle);
+        qDebug() << "HIL: Got NaN values from the hardware: isnan output: roll: " << qIsNaN(rollAilerons) << ", pitch: " << qIsNaN(pitchElevator) << ", yaw: " << qIsNaN(yawRudder) << ", throttle: " << qIsNaN(throttle);
     }
 }
 
-void QGCFlightGearLink::writeBytes(const char* data, qint64 size)
+void QGCFlightGearLink::_writeBytes(const QByteArray data)
 {
     //#define QGCFlightGearLink_DEBUG
 #ifdef QGCFlightGearLink_DEBUG
     QString bytes;
     QString ascii;
-    for (int i=0; i<size; i++)
+    for (int i=0, size = data.size(); i<size; i++)
     {
         unsigned char v = data[i];
         bytes.append(QString().sprintf("%02x ", v));
@@ -267,7 +254,7 @@ void QGCFlightGearLink::writeBytes(const char* data, qint64 size)
     qDebug() << bytes;
     qDebug() << "ASCII:" << ascii;
 #endif
-    if (connectState && _udpCommSocket) _udpCommSocket->writeDatagram(data, size, currentHost, currentPort);
+    if (connectState && _udpCommSocket) _udpCommSocket->writeDatagram(data, currentHost, currentPort);
 }
 
 /**
@@ -302,7 +289,7 @@ void QGCFlightGearLink::readBytes()
         qDebug() << "RETURN LENGTH MISMATCHING EXPECTED" << nValues << "BUT GOT" << values.size();
         qDebug() << state;
         emit showCriticalMessageFromThread(tr("FlightGear HIL"),
-                                           tr("Flight Gear protocol file '%1' is out of date. Quit QGroundControl. Delete the file and restart QGroundControl to fix.").arg(_fgProtocolFileFullyQualified));
+                                           tr("Flight Gear protocol file '%1' is out of date. Quit %2. Delete the file and restart %2 to fix.").arg(_fgProtocolFileFullyQualified).arg(qgcApp()->applicationName()));
         disconnectSimulation();
         return;
     }
@@ -510,7 +497,7 @@ bool QGCFlightGearLink::disconnectSimulation()
     return !connectState;
 }
 
-/// @brief Splits a space seperated set of command line arguments into a QStringList.
+/// @brief Splits a space separated set of command line arguments into a QStringList.
 ///         Quoted strings are allowed and handled correctly.
 ///     @param uiArgs Arguments to parse
 ///     @param argList Returned argument list
@@ -615,7 +602,7 @@ bool QGCFlightGearLink::connectSimulation()
     // We setup all the information we need to start FlightGear here such that if something goes
     // wrong we can return false out of here. All of this happens on the main UI thread. Once we
     // have that information setup we start the thread which will call run, which will in turn
-    // start the various FG processes on the seperate thread.
+    // start the various FG processes on the separate thread.
 
     if (!_vehicle->uas()) {
         return false;
@@ -630,7 +617,7 @@ bool QGCFlightGearLink::connectSimulation()
     QDir        fgAppDir;						// Location of main FlightGear application
 
     // Reset the list of arguments which will be provided to FG to the arguments set by the user via the UI
-    // First split the space seperated command line arguments coming in from the ui into a QStringList since
+    // First split the space separated command line arguments coming in from the ui into a QStringList since
     // that is what QProcess::start needs.
     QStringList uiArgList;
     bool mismatchedQuotes = parseUIArguments(startupArguments, uiArgList);
@@ -722,7 +709,7 @@ bool QGCFlightGearLink::connectSimulation()
 
                 regExp.setPattern("^fg_scenery:(.*)");
                 if (regExp.indexIn(line) == 0 && regExp.captureCount() == 1) {
-                    // Scenery can contain multiple paths seperated by ';' so don't do QDir::absolutePath on it
+                    // Scenery can contain multiple paths separated by ';' so don't do QDir::absolutePath on it
                     fgSceneryPath = regExp.cap(1);
                     qDebug() << "fg_scenery" << fgSceneryPath;
                     continue;
@@ -757,7 +744,7 @@ bool QGCFlightGearLink::connectSimulation()
         }
 
         // Let the user pick the right directory
-        QString dirPath = QGCFileDialog::getExistingDirectory(MainWindow::instance(), tr("Please select directory of FlightGear application : ") + fgAppName);
+        QString dirPath = QGCQFileDialog::getExistingDirectory(MainWindow::instance(), tr("Please select directory of FlightGear application : ") + fgAppName);
         if (dirPath.isEmpty()) {
             return false;
         }
@@ -834,7 +821,7 @@ bool QGCFlightGearLink::connectSimulation()
     // Setup and verify directory which contains QGC provided aircraft files
     QString qgcAircraftDir(QApplication::applicationDirPath() + "/flightgear/Aircraft");
     if (!QFileInfo(qgcAircraftDir).isDir()) {
-        QGCMessageBox::critical(tr("FlightGear HIL"), tr("Incorrect QGroundControl installation. Aircraft directory is missing: '%1'.").arg(qgcAircraftDir));
+        QGCMessageBox::critical(tr("FlightGear HIL"), tr("Incorrect %1 installation. Aircraft directory is missing: '%2'.").arg(qgcApp()->applicationName()).arg(qgcAircraftDir));
         return false;
     }
     _fgArgList += "--fg-aircraft=" + qgcAircraftDir;
@@ -855,7 +842,7 @@ bool QGCFlightGearLink::connectSimulation()
     // Verify directory which contains QGC provided FlightGear communication protocol files
     QDir qgcProtocolDir(QApplication::applicationDirPath() + "/flightgear/Protocol/");
     if (!qgcProtocolDir.isReadable()) {
-        QGCMessageBox::critical(tr("FlightGear HIL"), tr("Incorrect QGroundControl installation. Protocol directory is missing (%1).").arg(qgcProtocolDir.path()));
+        QGCMessageBox::critical(tr("FlightGear HIL"), tr("Incorrect installation. Protocol directory is missing (%1).").arg(qgcProtocolDir.path()));
         return false;
     }
 
@@ -863,7 +850,7 @@ bool QGCFlightGearLink::connectSimulation()
     QString fgProtocolXmlFile = fgProtocol + ".xml";
     QString qgcProtocolFileFullyQualified = qgcProtocolDir.absoluteFilePath(fgProtocolXmlFile);
     if (!QFileInfo(qgcProtocolFileFullyQualified).exists()) {
-        QGCMessageBox::critical(tr("FlightGear HIL"), tr("Incorrect QGroundControl installation. FlightGear protocol file missing: %1").arg(qgcProtocolFileFullyQualified));
+        QGCMessageBox::critical(tr("FlightGear HIL"), tr("Incorrect installation. FlightGear protocol file missing: %1").arg(qgcProtocolFileFullyQualified));
         return false;
     }
 
@@ -882,7 +869,7 @@ bool QGCFlightGearLink::connectSimulation()
             !qgcFile.open(QIODevice::ReadOnly)) {
             QGCMessageBox::warning(tr("FlightGear HIL"), tr("Unable to verify that protocol file %1 is current. "
                                                             "If file is out of date, you may experience problems. "
-                                                            "Safest approach is to delete the file manually and allow QGroundControl install the latest file.").arg(_fgProtocolFileFullyQualified));
+                                                            "Safest approach is to delete the file manually and allow %2 install the latest file.").arg(qgcApp()->applicationName()).arg(_fgProtocolFileFullyQualified));
         }
 
         QByteArray fgBytes = fgFile.readAll();
@@ -892,7 +879,7 @@ bool QGCFlightGearLink::connectSimulation()
         qgcFile.close();
 
         if (fgBytes != qgcBytes) {
-            QGCMessageBox::warning(tr("FlightGear HIL"), tr("FlightGear protocol file %1 is out of date. It will be deleted, which will cause QGroundControl to install the latest version of the file.").arg(_fgProtocolFileFullyQualified));
+            QGCMessageBox::warning(tr("FlightGear HIL"), tr("FlightGear protocol file %1 is out of date. It will be deleted, which will cause %2 to install the latest version of the file.").arg(_fgProtocolFileFullyQualified).arg(qgcApp()->applicationName()));
             if (!QFile::remove(_fgProtocolFileFullyQualified)) {
                 QGCMessageBox::warning(tr("FlightGear HIL"), tr("Delete of protocol file failed. You will have to manually delete the file."));
                 return false;
@@ -903,7 +890,7 @@ bool QGCFlightGearLink::connectSimulation()
     if (!QFileInfo(_fgProtocolFileFullyQualified).exists()) {
         QMessageBox msgBox(QMessageBox::Critical,
                            tr("FlightGear Failed to Start"),
-                           tr("FlightGear Failed to Start. QGroundControl protocol (%1) not installed to FlightGear Protocol directory (%2)").arg(fgProtocolXmlFile).arg(fgProtocolDir.path()),
+                           tr("FlightGear Failed to Start. %1 protocol (%2) not installed to FlightGear Protocol directory (%3)").arg(qgcApp()->applicationName()).arg(fgProtocolXmlFile).arg(fgProtocolDir.path()),
                            QMessageBox::Cancel,
                            MainWindow::instance());
         msgBox.setWindowModality(Qt::ApplicationModal);
@@ -952,11 +939,12 @@ bool QGCFlightGearLink::connectSimulation()
     }
 
     // We start out at our home position
-    _fgArgList << QString("--lat=%1").arg(qgcApp()->toolbox()->homePositionManager()->getHomeLatitude());
-    _fgArgList << QString("--lon=%1").arg(qgcApp()->toolbox()->homePositionManager()->getHomeLongitude());
+    QGeoCoordinate homePosition = QGroundControlQmlGlobal::flightMapPosition();
+    _fgArgList << QString("--lat=%1").arg(homePosition.latitude());
+    _fgArgList << QString("--lon=%1").arg(homePosition.longitude());
     // The altitude is not set because an altitude not equal to the ground altitude leads to a non-zero default throttle in flightgear
     // Without the altitude-setting the aircraft is positioned on the ground
-    //_fgArgList << QString("--altitude=%1").arg(qgcApp()->toolbox()->homePositionManager()->getHomeAltitude());
+    //_fgArgList << QString("--altitude=%1").arg(homePosition.altitude());
 
 #ifdef DEBUG_FLIGHTGEAR_CONNECT
     // This tell FlightGear to output highest debug level of log output. Handy for debuggin failures by looking at the FG

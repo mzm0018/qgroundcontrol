@@ -1,25 +1,12 @@
-/*=====================================================================
- 
- QGroundControl Open Source Ground Control Station
- 
- (c) 2009 - 2014 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- 
- This file is part of the QGROUNDCONTROL project
- 
- QGROUNDCONTROL is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
- 
- QGROUNDCONTROL is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
- 
- You should have received a copy of the GNU General Public License
- along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
- 
- ======================================================================*/
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
+
 
 /// @file
 ///     @brief LinkManager Unit Test
@@ -34,7 +21,6 @@ LinkManagerTest::LinkManagerTest(void) :
     _linkMgr(NULL),
     _multiSpy(NULL)
 {
-    
 }
 
 void LinkManagerTest::init(void)
@@ -71,29 +57,29 @@ void LinkManagerTest::cleanup(void)
 void LinkManagerTest::_add_test(void)
 {
     Q_ASSERT(_linkMgr);
-    Q_ASSERT(_linkMgr->links()->count() == 0);
+    Q_ASSERT(_linkMgr->links().count() == 0);
     
     _connectMockLink();
     
-    QCOMPARE(_linkMgr->links()->count(), 1);
-    QCOMPARE(_linkMgr->links()->value<MockLink*>(0), _mockLink);
+    QCOMPARE(_linkMgr->links().count(), 1);
+    QCOMPARE(_linkMgr->links().at(0), _mockLink);
 }
 
 void LinkManagerTest::_delete_test(void)
 {
     Q_ASSERT(_linkMgr);
-    Q_ASSERT(_linkMgr->links()->count() == 0);
+    Q_ASSERT(_linkMgr->links().count() == 0);
     
     _connectMockLink();
     _disconnectMockLink();
     
-    QCOMPARE(_linkMgr->links()->count(), 0);
+    QCOMPARE(_linkMgr->links().count(), 0);
 }
 
 void LinkManagerTest::_addSignals_test(void)
 {
     Q_ASSERT(_linkMgr);
-    Q_ASSERT(_linkMgr->links()->count() == 0);
+    Q_ASSERT(_linkMgr->links().count() == 0);
     Q_ASSERT(_multiSpy->checkNoSignals() == true);
     
     _connectMockLink();
@@ -113,7 +99,7 @@ void LinkManagerTest::_addSignals_test(void)
 void LinkManagerTest::_deleteSignals_test(void)
 {
     Q_ASSERT(_linkMgr);
-    Q_ASSERT(_linkMgr->links()->count() == 0);
+    Q_ASSERT(_linkMgr->links().count() == 0);
     Q_ASSERT(_multiSpy->checkNoSignals() == true);
     
     _connectMockLink();

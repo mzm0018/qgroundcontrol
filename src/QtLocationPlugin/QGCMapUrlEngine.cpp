@@ -1,25 +1,12 @@
-/*=====================================================================
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
 
-QGroundControl Open Source Ground Control Station
-
-(c) 2009, 2015 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
-
-This file is part of the QGROUNDCONTROL project
-
-    QGROUNDCONTROL is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    QGROUNDCONTROL is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
-
-======================================================================*/
 
 /**
  *  @file
@@ -27,7 +14,12 @@ This file is part of the QGROUNDCONTROL project
  *  Original work: The OpenPilot Team, http://www.openpilot.org Copyright (C) 2012.
  */
 
+//#define DEBUG_GOOGLE_MAPS
+
+#include "QGCApplication.h"
 #include "QGCMapEngine.h"
+#include "AppSettings.h"
+#include "SettingsManager.h"
 
 #include <QRegExp>
 #include <QNetworkReply>
@@ -36,22 +28,36 @@ This file is part of the QGROUNDCONTROL project
 #include <QString>
 #include <QByteArray>
 
+#if defined(DEBUG_GOOGLE_MAPS)
+#include <QFile>
+#include <QStandardPaths>
+#endif
+
+static const unsigned char pngSignature[]   = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00};
+static const unsigned char jpegSignature[]  = {0xFF, 0xD8, 0xFF, 0x00};
+static const unsigned char gifSignature[]   = {0x47, 0x49, 0x46, 0x38, 0x00};
+
 //-----------------------------------------------------------------------------
 UrlFactory::UrlFactory()
     : _timeout(5 * 1000)
+#ifndef QGC_NO_GOOGLE_MAPS
     , _googleVersionRetrieved(false)
     , _googleReply(NULL)
+#endif
 {
     QStringList langs = QLocale::system().uiLanguages();
     if (langs.length() > 0) {
         _language = langs[0];
     }
+
+#ifndef QGC_NO_GOOGLE_MAPS
     // Google version strings
-    _versionGoogleMap            = "m@336";
-    _versionGoogleSatellite      = "194";
+    _versionGoogleMap            = "m@354000000";
+    _versionGoogleSatellite      = "692";
     _versionGoogleLabels         = "h@336";
-    _versionGoogleTerrain        = "t@132,r@336";
+    _versionGoogleTerrain        = "t@354,r@354000000";
     _secGoogleWord               = "Galileo";
+#endif
     // BingMaps
     _versionBingMaps             = "563";
 }
@@ -59,8 +65,10 @@ UrlFactory::UrlFactory()
 //-----------------------------------------------------------------------------
 UrlFactory::~UrlFactory()
 {
+#ifndef QGC_NO_GOOGLE_MAPS
     if(_googleReply)
         _googleReply->deleteLater();
+#endif
 }
 
 
@@ -71,10 +79,12 @@ UrlFactory::getImageFormat(MapType type, const QByteArray& image)
     QString format;
     if(image.size() > 2)
     {
-        if((char)image[0] == (char)0xff && (char)image[1] == (char)0xd8)
-            format = "jpg";
-        else if((char)image[0] == (char)0x89 && (char)image[1] == (char)0x50)
+        if (image.startsWith(reinterpret_cast<const char*>(pngSignature)))
             format = "png";
+        else if (image.startsWith(reinterpret_cast<const char*>(jpegSignature)))
+            format = "jpg";
+        else if (image.startsWith(reinterpret_cast<const char*>(gifSignature)))
+            format = "gif";
         else {
             switch (type) {
                 case GoogleMap:
@@ -82,25 +92,28 @@ UrlFactory::getImageFormat(MapType type, const QByteArray& image)
                 case GoogleTerrain:
                 case GoogleHybrid:
                 case BingMap:
-                case OpenStreetMap:
+                case StatkartTopo:
                     format = "png";
                     break;
+                /*
                 case MapQuestMap:
                 case MapQuestSat:
-                case MapBoxStreets:
-                case MapBoxLight:
-                case MapBoxDark:
-                case MapBoxSatellite:
-                case MapBoxHybrid:
-                case MapBoxWheatPaste:
-                case MapBoxStreetsBasic:
-                case MapBoxComic:
-                case MapBoxOutdoors:
-                case MapBoxRunBikeHike:
-                case MapBoxPencil:
-                case MapBoxPirates:
-                case MapBoxEmerald:
-                case MapBoxHighContrast:
+                case OpenStreetMap:
+                */
+                case MapboxStreets:
+                case MapboxLight:
+                case MapboxDark:
+                case MapboxSatellite:
+                case MapboxHybrid:
+                case MapboxWheatPaste:
+                case MapboxStreetsBasic:
+                case MapboxComic:
+                case MapboxOutdoors:
+                case MapboxRunBikeHike:
+                case MapboxPencil:
+                case MapboxPirates:
+                case MapboxEmerald:
+                case MapboxHighContrast:
                 case GoogleSatellite:
                 case BingSatellite:
                 case BingHybrid:
@@ -126,19 +139,23 @@ UrlFactory::getTileURL(MapType type, int x, int y, int zoom, QNetworkAccessManag
         return request;
     request.setUrl(QUrl(url));
     request.setRawHeader("Accept", "*/*");
-    request.setRawHeader("User-Agent", _userAgent);
     switch (type) {
+#ifndef QGC_NO_GOOGLE_MAPS
         case GoogleMap:
         case GoogleSatellite:
         case GoogleLabels:
         case GoogleTerrain:
         case GoogleHybrid:
-            request.setRawHeader("Referrer", "http://maps.google.com/");
+            request.setRawHeader("Referrer", "https://www.google.com/maps/preview");
             break;
+#endif
         case BingHybrid:
         case BingMap:
         case BingSatellite:
-            request.setRawHeader("Referrer", "http://www.bing.com/maps/");
+            request.setRawHeader("Referrer", "https://www.bing.com/maps/");
+            break;
+        case StatkartTopo:
+            request.setRawHeader("Referrer", "https://www.norgeskart.no/");
             break;
         /*
         case OpenStreetMapSurfer:
@@ -150,13 +167,25 @@ UrlFactory::getTileURL(MapType type, int x, int y, int zoom, QNetworkAccessManag
             request.setRawHeader("Referrer", "https://www.openstreetmap.org/");
             break;
         */
+
+        case EsriWorldStreet:
+        case EsriWorldSatellite:
+        case EsriTerrain: {
+                QByteArray token = qgcApp()->toolbox()->settingsManager()->appSettings()->esriToken()->rawValue().toString().toLatin1();
+                request.setRawHeader("User-Agent", QByteArrayLiteral("Qt Location based application"));
+                request.setRawHeader("User-Token", token);
+            }
+            return request;
+
         default:
             break;
     }
+    request.setRawHeader("User-Agent", _userAgent);
     return request;
 }
 
 //-----------------------------------------------------------------------------
+#ifndef QGC_NO_GOOGLE_MAPS
 void
 UrlFactory::_getSecGoogleWords(int x, int y, QString &sec1, QString &sec2)
 {
@@ -168,12 +197,16 @@ UrlFactory::_getSecGoogleWords(int x, int y, QString &sec1, QString &sec2)
         sec1 = "&s=";
     }
 }
+#endif
 
 //-----------------------------------------------------------------------------
 QString
 UrlFactory::_getURL(MapType type, int x, int y, int zoom, QNetworkAccessManager* networkManager)
 {
     switch (type) {
+#ifdef QGC_NO_GOOGLE_MAPS
+    Q_UNUSED(networkManager);
+#else
     case GoogleMap:
     {
         // http://mt1.google.com/vt/lyrs=m
@@ -220,6 +253,12 @@ UrlFactory::_getURL(MapType type, int x, int y, int zoom, QNetworkAccessManager*
         return QString("http://%1%2.google.com/%3/v=%4&hl=%5&x=%6%7&y=%8&z=%9&s=%10").arg(server).arg(_getServerNum(x, y, 4)).arg(request).arg(_versionGoogleTerrain).arg(_language).arg(x).arg(sec1).arg(y).arg(zoom).arg(sec2);
     }
     break;
+#endif
+    case StatkartTopo:
+    {
+        return QString("http://opencache.statkart.no/gatekeeper/gk/gk.open_gmaps?layers=topo2&zoom=%1&x=%2&y=%3").arg(zoom).arg(x).arg(y);
+    }
+    break;
     /*
     case OpenStreetMap:
     {
@@ -263,6 +302,7 @@ UrlFactory::_getURL(MapType type, int x, int y, int zoom, QNetworkAccessManager*
         QString key = _tileXYToQuadKey(x, y, zoom);
         return QString("http://ecn.t%1.tiles.virtualearth.net/tiles/h%2.jpeg?g=%3&mkt=%4").arg(_getServerNum(x, y, 4)).arg(key).arg(_versionBingMaps).arg(_language);
     }
+    /*
     case MapQuestMap:
     {
         char letter = "1234"[_getServerNum(x, y, 4)];
@@ -275,66 +315,73 @@ UrlFactory::_getURL(MapType type, int x, int y, int zoom, QNetworkAccessManager*
         return QString("http://otile%1.mqcdn.com/tiles/1.0.0/sat/%2/%3/%4.jpg").arg(letter).arg(zoom).arg(x).arg(y);
     }
     break;
+    */
+    case EsriWorldStreet:
+        return QString("http://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/%1/%2/%3").arg(zoom).arg(y).arg(x);
+    case EsriWorldSatellite:
+        return QString("http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/%1/%2/%3").arg(zoom).arg(y).arg(x);
+    case EsriTerrain:
+        return QString("http://server.arcgisonline.com/ArcGIS/rest/services/World_Terrain_Base/MapServer/tile/%1/%2/%3").arg(zoom).arg(y).arg(x);
 
-    case MapBoxStreets:
-    case MapBoxLight:
-    case MapBoxDark:
-    case MapBoxSatellite:
-    case MapBoxHybrid:
-    case MapBoxWheatPaste:
-    case MapBoxStreetsBasic:
-    case MapBoxComic:
-    case MapBoxOutdoors:
-    case MapBoxRunBikeHike:
-    case MapBoxPencil:
-    case MapBoxPirates:
-    case MapBoxEmerald:
-    case MapBoxHighContrast:
+    case MapboxStreets:
+    case MapboxLight:
+    case MapboxDark:
+    case MapboxSatellite:
+    case MapboxHybrid:
+    case MapboxWheatPaste:
+    case MapboxStreetsBasic:
+    case MapboxComic:
+    case MapboxOutdoors:
+    case MapboxRunBikeHike:
+    case MapboxPencil:
+    case MapboxPirates:
+    case MapboxEmerald:
+    case MapboxHighContrast:
     {
-        QString mapBoxToken = getQGCMapEngine()->getMapBoxToken();
+        QString mapBoxToken = qgcApp()->toolbox()->settingsManager()->appSettings()->mapboxToken()->rawValue().toString();
         if(!mapBoxToken.isEmpty()) {
             QString server = "https://api.mapbox.com/v4/";
             switch(type) {
-                case MapBoxStreets:
+                case MapboxStreets:
                     server += "mapbox.streets";
                     break;
-                case MapBoxLight:
+                case MapboxLight:
                     server += "mapbox.light";
                     break;
-                case MapBoxDark:
+                case MapboxDark:
                     server += "mapbox.dark";
                     break;
-                case MapBoxSatellite:
+                case MapboxSatellite:
                     server += "mapbox.satellite";
                     break;
-                case MapBoxHybrid:
+                case MapboxHybrid:
                     server += "mapbox.streets-satellite";
                     break;
-                case MapBoxWheatPaste:
+                case MapboxWheatPaste:
                     server += "mapbox.wheatpaste";
                     break;
-                case MapBoxStreetsBasic:
+                case MapboxStreetsBasic:
                     server += "mapbox.streets-basic";
                     break;
-                case MapBoxComic:
+                case MapboxComic:
                     server += "mapbox.comic";
                     break;
-                case MapBoxOutdoors:
+                case MapboxOutdoors:
                     server += "mapbox.outdoors";
                     break;
-                case MapBoxRunBikeHike:
+                case MapboxRunBikeHike:
                     server += "mapbox.run-bike-hike";
                     break;
-                case MapBoxPencil:
+                case MapboxPencil:
                     server += "mapbox.pencil";
                     break;
-                case MapBoxPirates:
+                case MapboxPirates:
                     server += "mapbox.pirates";
                     break;
-                case MapBoxEmerald:
+                case MapboxEmerald:
                     server += "mapbox.emerald";
                     break;
-                case MapBoxHighContrast:
+                case MapboxHighContrast:
                     server += "mapbox.high-contrast";
                     break;
                 default:
@@ -381,6 +428,7 @@ UrlFactory::_getServerNum(int x, int y, int max)
 }
 
 //-----------------------------------------------------------------------------
+#ifndef QGC_NO_GOOGLE_MAPS
 void
 UrlFactory::_networkReplyError(QNetworkReply::NetworkError error)
 {
@@ -391,15 +439,18 @@ UrlFactory::_networkReplyError(QNetworkReply::NetworkError error)
         _googleReply = NULL;
     }
 }
-
+#endif
 //-----------------------------------------------------------------------------
+#ifndef QGC_NO_GOOGLE_MAPS
 void
 UrlFactory::_replyDestroyed()
 {
     _googleReply = NULL;
 }
+#endif
 
 //-----------------------------------------------------------------------------
+#ifndef QGC_NO_GOOGLE_MAPS
 void
 UrlFactory::_googleVersionCompleted()
 {
@@ -408,22 +459,29 @@ UrlFactory::_googleVersionCompleted()
         return;
     }
     QString html = QString(_googleReply->readAll());
-    QRegExp reg("\"*http://mt0.google.com/vt/lyrs=m@(\\d*)",Qt::CaseInsensitive);
+
+#if defined(DEBUG_GOOGLE_MAPS)
+    QString filename = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
+    filename += "/google.output";
+    QFile file(filename);
+    if (file.open(QIODevice::ReadWrite))
+    {
+        QTextStream stream( &file );
+        stream << html << endl;
+    }
+#endif
+
+    QRegExp reg("\"*https?://mt\\D?\\d..*/vt\\?lyrs=m@(\\d*)", Qt::CaseInsensitive);
     if (reg.indexIn(html) != -1) {
         QStringList gc = reg.capturedTexts();
         _versionGoogleMap = QString("m@%1").arg(gc[1]);
     }
-    reg = QRegExp("\"*http://mt0.google.com/vt/lyrs=h@(\\d*)",Qt::CaseInsensitive);
-    if (reg.indexIn(html) != -1) {
-        QStringList gc = reg.capturedTexts();
-        _versionGoogleLabels = QString("h@%1").arg(gc[1]);
-    }
-    reg = QRegExp("\"*http://khm\\D?\\d.google.com/kh/v=(\\d*)",Qt::CaseInsensitive);
+    reg = QRegExp("\"*https?://khm\\D?\\d.googleapis.com/kh\\?v=(\\d*)", Qt::CaseInsensitive);
     if (reg.indexIn(html) != -1) {
         QStringList gc = reg.capturedTexts();
         _versionGoogleSatellite = gc[1];
     }
-    reg = QRegExp("\"*http://mt0.google.com/vt/lyrs=t@(\\d*),r@(\\d*)",Qt::CaseInsensitive);
+    reg = QRegExp("\"*https?://mt\\D?\\d..*/vt\\?lyrs=t@(\\d*),r@(\\d*)", Qt::CaseInsensitive);
     if (reg.indexIn(html) != -1) {
         QStringList gc = reg.capturedTexts();
         _versionGoogleTerrain = QString("t@%1,r@%2").arg(gc[1]).arg(gc[2]);
@@ -431,10 +489,12 @@ UrlFactory::_googleVersionCompleted()
     _googleReply->deleteLater();
     _googleReply = NULL;
 }
+#endif
 
 //-----------------------------------------------------------------------------
+#ifndef QGC_NO_GOOGLE_MAPS
 void
-UrlFactory::_tryCorrectGoogleVersions(QNetworkAccessManager*  networkManager)
+UrlFactory::_tryCorrectGoogleVersions(QNetworkAccessManager* networkManager)
 {
     QMutexLocker locker(&_googleVersionMutex);
     if (_googleVersionRetrieved) {
@@ -446,9 +506,12 @@ UrlFactory::_tryCorrectGoogleVersions(QNetworkAccessManager*  networkManager)
         QNetworkRequest qheader;
         QNetworkProxy proxy = networkManager->proxy();
         QNetworkProxy tProxy;
-        tProxy.setType(QNetworkProxy::NoProxy);
+        tProxy.setType(QNetworkProxy::DefaultProxy);
         networkManager->setProxy(tProxy);
-        QString url = "http://maps.google.com/maps";
+        QSslConfiguration conf = qheader.sslConfiguration();
+        conf.setPeerVerifyMode(QSslSocket::VerifyNone);
+        qheader.setSslConfiguration(conf);
+        QString url = "http://maps.google.com/maps/api/js?v=3.2&sensor=false";
         qheader.setUrl(QUrl(url));
         QByteArray ua;
         ua.append(getQGCMapEngine()->userAgent());
@@ -461,6 +524,7 @@ UrlFactory::_tryCorrectGoogleVersions(QNetworkAccessManager*  networkManager)
         networkManager->setProxy(proxy);
     }
 }
+#endif
 
 #define AVERAGE_GOOGLE_STREET_MAP   4913
 #define AVERAGE_GOOGLE_TERRAIN_MAP  19391
@@ -482,30 +546,30 @@ UrlFactory::averageSizeForType(MapType type)
         return AVERAGE_BING_STREET_MAP;
     case GoogleSatellite:
         return AVERAGE_GOOGLE_SAT_MAP;
-    case MapBoxSatellite:
+    case MapboxSatellite:
         return AVERAGE_MAPBOX_SAT_MAP;
     case BingHybrid:
     case BingSatellite:
         return AVERAGE_BING_SAT_MAP;
     case GoogleTerrain:
         return AVERAGE_GOOGLE_TERRAIN_MAP;
-    case MapBoxStreets:
-    case MapBoxStreetsBasic:
-    case MapBoxRunBikeHike:
+    case MapboxStreets:
+    case MapboxStreetsBasic:
+    case MapboxRunBikeHike:
         return AVERAGE_MAPBOX_STREET_MAP;
     case GoogleLabels:
-    case MapBoxDark:
-    case MapBoxLight:
-    case MapBoxOutdoors:
-    case MapBoxPencil:
+    case MapboxDark:
+    case MapboxLight:
+    case MapboxOutdoors:
+    case MapboxPencil:
     case OpenStreetMap:
     case GoogleHybrid:
-    case MapBoxComic:
-    case MapBoxEmerald:
-    case MapBoxHighContrast:
-    case MapBoxHybrid:
-    case MapBoxPirates:
-    case MapBoxWheatPaste:
+    case MapboxComic:
+    case MapboxEmerald:
+    case MapboxHighContrast:
+    case MapboxHybrid:
+    case MapboxPirates:
+    case MapboxWheatPaste:
     default:
         break;
     }

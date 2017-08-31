@@ -1,25 +1,12 @@
-/*=====================================================================
- 
- QGroundControl Open Source Ground Control Station
- 
- (c) 2009 - 2014 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- 
- This file is part of the QGROUNDCONTROL project
- 
- QGROUNDCONTROL is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
- 
- QGROUNDCONTROL is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
- 
- You should have received a copy of the GNU General Public License
- along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
- 
- ======================================================================*/
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
+
 
 /// @file
 ///     @brief Base class for all unit tests
@@ -41,7 +28,7 @@
 #define UT_REGISTER_TEST(className) static UnitTestWrapper<className> className(#className);
 
 class QGCMessageBox;
-class QGCFileDialog;
+class QGCQFileDialog;
 class LinkManager;
 class MockLink;
 class MainWindow;
@@ -71,7 +58,7 @@ public:
         getSaveFileName
     };
     
-    /// @brief Sets up for an expected QGCFileDialog
+    /// @brief Sets up for an expected QGCQFileDialog
     ///     @param type Type of expected file dialog
     ///     @param response Files to return from call. Multiple files only supported by getOpenFileNames
     void setExpectedFileDialog(enum FileDialogType type, QStringList response);
@@ -80,13 +67,16 @@ public:
         expectFailNoFailure =           1 << 0, ///< not expecting any failures
         expectFailNoDialog =            1 << 1, ///< expecting a failure due to no dialog displayed
         expectFailBadResponseButton =   1 << 2, ///< expecting a failure due to bad button response (QGCMessageBox only)
-        expectFailWrongFileDialog =     1 << 3  ///< expecting one dialog type, got the wrong type (QGCFileDialog ony)
+        expectFailWrongFileDialog =     1 << 3  ///< expecting one dialog type, got the wrong type (QGCQFileDialog ony)
     };
     
     /// @brief Check whether a message box was displayed and correctly responded to
     //          @param Expected failure response flags
     void checkExpectedMessageBox(int expectFailFlags = expectFailNoFailure);
     
+    /// Checks that the specified number of message boxes where shown. Do not call setExpectedMessageBox when using this method.
+    void checkMultipleExpectedMessageBox(int messageCount);
+
     /// @brief Check whether a message box was displayed and correctly responded to
     //          @param Expected failure response flags
     void checkExpectedFileDialog(int expectFailFlags = expectFailNoFailure);
@@ -94,17 +84,29 @@ public:
     /// @brief Adds a unit test to the list. Should only be called by UnitTestWrapper.
     static void _addTest(QObject* test);
 
+    /// Creates a file with random contents of the specified size.
+    /// @return Fully qualified path to created file
+    static QString createRandomFile(uint32_t byteCount);
+
+    /// Will throw qWarning at location where files differ
+    /// @return true: files are alike, false: files differ
+    static bool fileCompare(const QString& file1, const QString& file2);
+
+    /// Fuzzy compare on two doubles, where NaN is a possible value
+    /// @return true: equal
+    static bool doubleNaNCompare(double value1, double value2);
+
 protected slots:
     
     // These are all pure virtuals to force the derived class to implement each one and in turn
     // call the UnitTest private implementation.
     
     /// @brief Called before each test.
-    ///         Make sure to call _init first in your derived class.
+    ///         Make sure to call UnitTest::init first in your derived class.
     virtual void init(void);
     
     /// @brief Called after each test.
-    ///         Make sure to call _cleanup first in your derived class.
+    ///         Make sure to call UnitTest::cleanup last in your derived class.
     virtual void cleanup(void);
     
 protected:
@@ -136,7 +138,7 @@ private:
     // This allows the private call to _messageBox
     friend class QGCMessageBox;
     
-    // When the app is running in unit test mode the QGCFileDialog methods are re-routed here.
+    // When the app is running in unit test mode the QGCQFileDialog methods are re-routed here.
     
     static QString _getExistingDirectory(
         QWidget* parent,
@@ -169,7 +171,7 @@ private:
     static QString _fileDialogResponseSingle(enum FileDialogType type);
 
     // This allows the private calls to the file dialog methods
-    friend class QGCFileDialog;
+    friend class QGCQFileDialog;
 
     void _unitTestCalled(void);
 	static QList<QObject*>& _testList(void);
@@ -180,7 +182,7 @@ private:
     static QMessageBox::StandardButton  _messageBoxResponseButton;  ///< Response to next message box
     static int                          _missedMessageBoxCount;     ///< Count of message box not checked with call to messageBoxWasDisplayed
     
-    // Catch QGCFileDialog calls
+    // Catch QGCQFileDialog calls
     static bool         _fileDialogRespondedTo;         ///< File dialog was responded to
     static bool         _fileDialogResponseSet;         ///< true: _fileDialogResponse was set by a call to UnitTest::setExpectedFileDialog
     static QStringList  _fileDialogResponse;            ///< Response to next file dialog

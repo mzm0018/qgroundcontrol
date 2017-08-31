@@ -1,25 +1,12 @@
-/*=====================================================================
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
 
-QGroundControl Open Source Ground Control Station
-
-(c) 2009, 2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
-
-This file is part of the QGROUNDCONTROL project
-
-    QGROUNDCONTROL is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    QGROUNDCONTROL is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
-
-======================================================================*/
 
 /**
  * @file
@@ -123,6 +110,7 @@ public:
 
     enum TaskType {
         taskInit,
+        taskTestInternet,
         taskCacheTile,
         taskFetchTile,
         taskFetchTileSets,
@@ -130,8 +118,11 @@ public:
         taskGetTileDownloadList,
         taskUpdateTileDownloadState,
         taskDeleteTileSet,
+        taskRenameTileSet,
         taskPruneCache,
-        taskReset
+        taskReset,
+        taskExport,
+        taskImport
     };
 
     QGCMapTask(TaskType type)
@@ -142,7 +133,7 @@ public:
 
     virtual TaskType    type            () { return _type; }
 
-    void setError(QString errorString)
+    void setError(QString errorString = QString())
     {
         emit error(_type, errorString);
     }
@@ -152,6 +143,16 @@ signals:
 
 private:
     TaskType    _type;
+};
+
+//-----------------------------------------------------------------------------
+class QGCTestInternetTask : public QGCMapTask
+{
+    Q_OBJECT
+public:
+    QGCTestInternetTask()
+        : QGCMapTask(QGCMapTask::taskTestInternet)
+    {}
 };
 
 //-----------------------------------------------------------------------------
@@ -326,6 +327,25 @@ private:
 };
 
 //-----------------------------------------------------------------------------
+class QGCRenameTileSetTask : public QGCMapTask
+{
+    Q_OBJECT
+public:
+    QGCRenameTileSetTask(qulonglong setID, QString newName)
+        : QGCMapTask(QGCMapTask::taskRenameTileSet)
+        , _setID(setID)
+        , _newName(newName)
+    {}
+
+    qulonglong  setID   () { return _setID; }
+    QString     newName () { return _newName; }
+
+private:
+    qulonglong  _setID;
+    QString     _newName;
+};
+
+//-----------------------------------------------------------------------------
 class QGCPruneCacheTask : public QGCMapTask
 {
     Q_OBJECT
@@ -367,5 +387,80 @@ signals:
     void resetCompleted();
 };
 
+//-----------------------------------------------------------------------------
+class QGCExportTileTask : public QGCMapTask
+{
+    Q_OBJECT
+public:
+    QGCExportTileTask(QVector<QGCCachedTileSet*> sets, QString path)
+        : QGCMapTask(QGCMapTask::taskExport)
+        , _sets(sets)
+        , _path(path)
+    {}
+
+    ~QGCExportTileTask()
+    {
+    }
+
+    QVector<QGCCachedTileSet*> sets() { return _sets; }
+    QString                    path() { return _path; }
+
+    void setExportCompleted()
+    {
+        emit actionCompleted();
+    }
+
+    void setProgress(int percentage)
+    {
+        emit actionProgress(percentage);
+    }
+
+private:
+    QVector<QGCCachedTileSet*>  _sets;
+    QString                     _path;
+
+signals:
+    void actionCompleted        ();
+    void actionProgress         (int percentage);
+
+};
+
+//-----------------------------------------------------------------------------
+class QGCImportTileTask : public QGCMapTask
+{
+    Q_OBJECT
+public:
+    QGCImportTileTask(QString path, bool replace)
+        : QGCMapTask(QGCMapTask::taskImport)
+        , _path(path)
+        , _replace(replace)
+    {}
+
+    ~QGCImportTileTask()
+    {
+    }
+
+    QString                    path     () { return _path; }
+    bool                       replace  () { return _replace; }
+
+    void setImportCompleted()
+    {
+        emit actionCompleted();
+    }
+
+    void setProgress(int percentage)
+    {
+        emit actionProgress(percentage);
+    }
+
+private:
+    QString                     _path;
+    bool                        _replace;
+
+signals:
+    void actionCompleted        ();
+    void actionProgress         (int percentage);
+
+};
 
 #endif // QGC_MAP_ENGINE_DATA_H

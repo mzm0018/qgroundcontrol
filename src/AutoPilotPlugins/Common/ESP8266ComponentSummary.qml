@@ -1,4 +1,4 @@
-import QtQuick 2.2
+import QtQuick 2.3
 import QtQuick.Controls 1.2
 
 import QGroundControl.FactSystem    1.0
@@ -25,28 +25,43 @@ FactPanel {
     property Fact wifiHostPort:     controller.getParameterFact(esp8266.componentID, "WIFI_UDP_HPORT")
     property Fact wifiClientPort:   controller.getParameterFact(esp8266.componentID, "WIFI_UDP_CPORT")
     property Fact uartBaud:         controller.getParameterFact(esp8266.componentID, "UART_BAUDRATE")
+    property Fact wifiMode:         controller.getParameterFact(esp8266.componentID, "WIFI_MODE", false) //-- Don't bitch if missing
 
     Column {
         anchors.fill:       parent
-        anchors.margins:    8
         VehicleSummaryRow {
-            labelText: "Firmware Version:"
+            labelText: qsTr("Firmware Version:")
             valueText: esp8266.version
         }
         VehicleSummaryRow {
-            labelText: "WiFi Channel:"
-            valueText: wifiChannel ? wifiChannel.valueString : ""
+            labelText: qsTr("WiFi Mode:")
+            valueText: wifiMode ? (wifiMode.value === 0 ? "AP Mode" : "Station Mode") : "AP Mode"
         }
         VehicleSummaryRow {
-            labelText: "WiFi SSID:"
+            labelText:  qsTr("WiFi Channel:")
+            valueText:  wifiChannel ? wifiChannel.valueString : ""
+            visible:    wifiMode ? wifiMode.value === 0 : true
+        }
+        VehicleSummaryRow {
+            labelText: qsTr("WiFi AP SSID:")
             valueText: esp8266.wifiSSID
         }
         VehicleSummaryRow {
-            labelText: "WiFi Password:"
+            labelText: qsTr("WiFi AP Password:")
             valueText: esp8266.wifiPassword
         }
+        /* Too much info makes it all crammed
         VehicleSummaryRow {
-            labelText: "UART Baud Rate:"
+            labelText: qsTr("WiFi STA SSID:")
+            valueText: esp8266.wifiSSIDSta
+        }
+        VehicleSummaryRow {
+            labelText: qsTr("WiFi STA Password:")
+            valueText: esp8266.wifiPasswordSta
+        }
+        */
+        VehicleSummaryRow {
+            labelText: qsTr("UART Baud Rate:")
             valueText: uartBaud ? uartBaud.valueString : ""
         }
     }

@@ -1,30 +1,16 @@
-/*=====================================================================
- 
- QGroundControl Open Source Ground Control Station
- 
- (c) 2009 - 2015 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- 
- This file is part of the QGROUNDCONTROL project
- 
- QGROUNDCONTROL is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
- 
- QGROUNDCONTROL is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
- 
- You should have received a copy of the GNU General Public License
- along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
- 
- ======================================================================*/
-
-/// @file
-///     @author Pritam Ghanghas <pritam.ghanghas@gmail.com>
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
 
 #include "ArduPlaneFirmwarePlugin.h"
+
+bool ArduPlaneFirmwarePlugin::_remapParamNameIntialized = false;
+FirmwarePlugin::remapParamNameMajorVersionMap_t ArduPlaneFirmwarePlugin::_remapParamName;
 
 APMPlaneMode::APMPlaneMode(uint32_t mode, bool settable)
     : APMCustomMode(mode, settable)
@@ -44,6 +30,11 @@ APMPlaneMode::APMPlaneMode(uint32_t mode, bool settable)
     enumToString.insert(LOITER,         "Loiter");
     enumToString.insert(GUIDED,         "Guided");
     enumToString.insert(INITIALIZING,   "Initializing");
+    enumToString.insert(QSTABILIZE,     "QuadPlane Stabilize");
+    enumToString.insert(QHOVER,         "QuadPlane Hover");
+    enumToString.insert(QLOITER,        "QuadPlane Loiter");
+    enumToString.insert(QLAND,          "QuadPlane Land");
+    enumToString.insert(QRTL,           "QuadPlane RTL");
 
     setEnumToStringMapping(enumToString);
 }
@@ -65,5 +56,66 @@ ArduPlaneFirmwarePlugin::ArduPlaneFirmwarePlugin(void)
     supportedFlightModes << APMPlaneMode(APMPlaneMode::LOITER          ,true);
     supportedFlightModes << APMPlaneMode(APMPlaneMode::GUIDED          ,true);
     supportedFlightModes << APMPlaneMode(APMPlaneMode::INITIALIZING    ,false);
+    supportedFlightModes << APMPlaneMode(APMPlaneMode::QSTABILIZE      ,true);
+    supportedFlightModes << APMPlaneMode(APMPlaneMode::QHOVER          ,true);
+    supportedFlightModes << APMPlaneMode(APMPlaneMode::QLOITER         ,true);
+    supportedFlightModes << APMPlaneMode(APMPlaneMode::QLAND           ,true);
+    supportedFlightModes << APMPlaneMode(APMPlaneMode::QRTL            ,true);
     setSupportedModes(supportedFlightModes);
+
+    if (!_remapParamNameIntialized) {
+        FirmwarePlugin::remapParamNameMap_t& remapV3_8 = _remapParamName[3][8];
+
+        remapV3_8["SERVO5_FUNCTION"] = QStringLiteral("RC5_FUNCTION");
+        remapV3_8["SERVO6_FUNCTION"] = QStringLiteral("RC6_FUNCTION");
+        remapV3_8["SERVO7_FUNCTION"] = QStringLiteral("RC7_FUNCTION");
+        remapV3_8["SERVO8_FUNCTION"] = QStringLiteral("RC8_FUNCTION");
+        remapV3_8["SERVO9_FUNCTION"] = QStringLiteral("RC9_FUNCTION");
+        remapV3_8["SERVO10_FUNCTION"] = QStringLiteral("RC10_FUNCTION");
+        remapV3_8["SERVO11_FUNCTION"] = QStringLiteral("RC11_FUNCTION");
+        remapV3_8["SERVO12_FUNCTION"] = QStringLiteral("RC12_FUNCTION");
+        remapV3_8["SERVO13_FUNCTION"] = QStringLiteral("RC13_FUNCTION");
+        remapV3_8["SERVO14_FUNCTION"] = QStringLiteral("RC14_FUNCTION");
+
+        remapV3_8["SERVO5_MIN"] = QStringLiteral("RC5_MIN");
+        remapV3_8["SERVO6_MIN"] = QStringLiteral("RC6_MIN");
+        remapV3_8["SERVO7_MIN"] = QStringLiteral("RC7_MIN");
+        remapV3_8["SERVO8_MIN"] = QStringLiteral("RC8_MIN");
+        remapV3_8["SERVO9_MIN"] = QStringLiteral("RC9_MIN");
+        remapV3_8["SERVO10_MIN"] = QStringLiteral("RC10_MIN");
+        remapV3_8["SERVO11_MIN"] = QStringLiteral("RC11_MIN");
+        remapV3_8["SERVO12_MIN"] = QStringLiteral("RC12_MIN");
+        remapV3_8["SERVO13_MIN"] = QStringLiteral("RC13_MIN");
+        remapV3_8["SERVO14_MIN"] = QStringLiteral("RC14_MIN");
+
+        remapV3_8["SERVO5_MAX"] = QStringLiteral("RC5_MAX");
+        remapV3_8["SERVO6_MAX"] = QStringLiteral("RC6_MAX");
+        remapV3_8["SERVO7_MAX"] = QStringLiteral("RC7_MAX");
+        remapV3_8["SERVO8_MAX"] = QStringLiteral("RC8_MAX");
+        remapV3_8["SERVO9_MAX"] = QStringLiteral("RC9_MAX");
+        remapV3_8["SERVO10_MAX"] = QStringLiteral("RC10_MAX");
+        remapV3_8["SERVO11_MAX"] = QStringLiteral("RC11_MAX");
+        remapV3_8["SERVO12_MAX"] = QStringLiteral("RC12_MAX");
+        remapV3_8["SERVO13_MAX"] = QStringLiteral("RC13_MAX");
+        remapV3_8["SERVO14_MAX"] = QStringLiteral("RC14_MAX");
+
+        remapV3_8["SERVO5_REVERSED"] = QStringLiteral("RC5_REVERSED");
+        remapV3_8["SERVO6_REVERSED"] = QStringLiteral("RC6_REVERSED");
+        remapV3_8["SERVO7_REVERSED"] = QStringLiteral("RC7_REVERSED");
+        remapV3_8["SERVO8_REVERSED"] = QStringLiteral("RC8_REVERSED");
+        remapV3_8["SERVO9_REVERSED"] = QStringLiteral("RC9_REVERSED");
+        remapV3_8["SERVO10_REVERSED"] = QStringLiteral("RC10_REVERSED");
+        remapV3_8["SERVO11_REVERSED"] = QStringLiteral("RC11_REVERSED");
+        remapV3_8["SERVO12_REVERSED"] = QStringLiteral("RC12_REVERSED");
+        remapV3_8["SERVO13_REVERSED"] = QStringLiteral("RC13_REVERSED");
+        remapV3_8["SERVO14_REVERSED"] = QStringLiteral("RC14_REVERSED");
+
+        _remapParamNameIntialized = true;
+    }
+}
+
+int ArduPlaneFirmwarePlugin::remapParamNameHigestMinorVersionNumber(int majorVersionNumber) const
+{
+    // Remapping supports up to 3.8
+    return majorVersionNumber == 3 ? 8 : Vehicle::versionNotSetValue;
 }

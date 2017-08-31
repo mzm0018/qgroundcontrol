@@ -1,75 +1,44 @@
-/*=====================================================================
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
 
-QGroundControl Open Source Ground Control Station
-
-(c) 2009, 2015 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
-
-This file is part of the QGROUNDCONTROL project
-
-    QGROUNDCONTROL is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    QGROUNDCONTROL is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
-
-======================================================================*/
-
-/**
- * @file
- *   @brief QGC Fly View Widgets
- *   @author Gus Grubba <mavlink@grubba.com>
- */
-
-import QtQuick 2.4
+import QtQuick 2.3
 
 import QGroundControl               1.0
 import QGroundControl.Controls      1.0
 import QGroundControl.ScreenTools   1.0
 import QGroundControl.FactSystem    1.0
 import QGroundControl.FlightMap     1.0
+import QGroundControl.Palette       1.0
 
-Item {
-    id:     instrumentPanel
-    height: instrumentColumn.y + instrumentColumn.height + _topBottomMargin
-    width:  size
+Rectangle {
+    id:             instrumentPanel
+    height:         instrumentColumn.height + (_topBottomMargin * 2)
+    width:          getPreferredInstrumentWidth()
+    radius:         _showLargeCompass ? width / 2 :  ScreenTools.defaultFontPixelWidth / 2
+    color:          _backgroundColor
+    border.width:   _showLargeCompass ? 1 : 0
+    border.color:   _isSatellite ? qgcPal.mapWidgetBorderLight : qgcPal.mapWidgetBorderDark
 
-    property alias  heading:        compass.heading
-    property alias  rollAngle:      attitudeWidget.rollAngle
-    property alias  pitchAngle:     attitudeWidget.pitchAngle
-    property real   size:           _defaultSize
-    property bool   isSatellite:    false
-    property bool   active:         false
-    property var    qgcView
-    property real   maxHeight
+    property var    _qgcView:               qgcView
+    property real   _maxHeight:             maxHeight
+    property real   _defaultSize:           ScreenTools.defaultFontPixelHeight * (9)
+    property color  _backgroundColor:       qgcPal.window
+    property real   _spacing:               ScreenTools.defaultFontPixelHeight * 0.33
+    property real   _topBottomMargin:       (width * 0.05) / 2
+    property real   _availableValueHeight:  _maxHeight - (outerCompass.height + _spacer1.height + _spacer2.height + (_spacing * 4)) - (_showLargeCompass ? compass.height : 0)
+    property var    _activeVehicle:         QGroundControl.multiVehicleManager.activeVehicle
+    property bool   _showLargeCompass:      QGroundControl.settingsManager.appSettings.showLargeCompass.value
 
-    property Fact   _emptyFact:         Fact { }
-    property Fact   groundSpeedFact:    _emptyFact
-    property Fact   airSpeedFact:       _emptyFact
+    readonly property real _outerRingRatio: 0.95
+    readonly property real _innerRingRatio: 0.80
 
-    property real   _defaultSize:   ScreenTools.defaultFontPixelSize * (9)
-
-    property color  _backgroundColor:   isSatellite ? Qt.rgba(1,1,1,0.75) : Qt.rgba(0,0,0,0.75)
-    property real   _spacing:           ScreenTools.defaultFontPixelSize * 0.33
-    property real   _topBottomMargin:   (size * 0.05) / 2
-    property real   _availableValueHeight: maxHeight - (attitudeWidget.height + _spacer1.height + _spacer2.height + (_spacing * 4)) - (_showCompass ? compass.height : 0)
-    property var    _activeVehicle:     QGroundControl.multiVehicleManager.activeVehicle
-
-    readonly property bool _showCompass:    !ScreenTools.isShortScreen
-
-    Rectangle {
-        anchors.left:   parent.left
-        anchors.right:  parent.right
-        height:         (_showCompass ? instrumentColumn.height : attitudeWidget.height) + (_topBottomMargin * 2)
-        radius:         size / 2
-        color:          _backgroundColor
-    }
+    QGCPalette { id: qgcPal }
 
     MouseArea {
         anchors.fill: parent
@@ -86,26 +55,35 @@ Item {
 
         Item {
             width:  parent.width
-            height: attitudeWidget.height
+            height: outerCompass.height
+
+            CompassRing {
+                id:                 outerCompass
+                size:               parent.width * _outerRingRatio
+                vehicle:            _activeVehicle
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible:            !_showLargeCompass
+
+            }
 
             QGCAttitudeWidget {
-                id:             attitudeWidget
-                size:           parent.width * 0.95
-                active:         instrumentPanel.active
-                anchors.horizontalCenter: parent.horizontalCenter
+                id:                 attitudeWidget
+                size:               parent.width * (_showLargeCompass ? _outerRingRatio : _innerRingRatio)
+                vehicle:            _activeVehicle
+                anchors.centerIn:   outerCompass
+                showHeading:        !_showLargeCompass
             }
 
             Image {
                 id:                 gearThingy
-                anchors.bottom:     attitudeWidget.bottom
-                anchors.right:      attitudeWidget.right
-                source:             "/res/gear.svg"
+                anchors.bottom:     outerCompass.bottom
+                anchors.right:      outerCompass.right
+                source:             qgcPal.globalTheme == QGCPalette.Light ? "/res/gear-black.svg" : "/res/gear-white.svg"
                 mipmap:             true
                 opacity:            0.5
-                width:              attitudeWidget.width * 0.15
+                width:              outerCompass.width * 0.15
+                sourceSize.width:   width
                 fillMode:           Image.PreserveAspectFit
-                visible:            _activeVehicle
-
                 MouseArea {
                     anchors.fill:   parent
                     hoverEnabled:   true
@@ -114,14 +92,45 @@ Item {
                     onClicked:      _valuesWidget.showPicker()
                 }
             }
+
+            Image {
+                id:                 healthWarning
+                anchors.bottom:     outerCompass.bottom
+                anchors.left:       outerCompass.left
+                source:             "/qmlimages/Yield.svg"
+                mipmap:             true
+                visible:            _activeVehicle ? !_warningsViewed && _activeVehicle.unhealthySensors.length > 0 && _valuesWidget.currentPage() != 2 : false
+                opacity:            0.8
+                width:              outerCompass.width * 0.15
+                sourceSize.width:   width
+                fillMode:           Image.PreserveAspectFit
+
+                property bool _warningsViewed: false
+
+                MouseArea {
+                    anchors.fill:   parent
+                    hoverEnabled:   true
+                    onEntered:      healthWarning.opacity = 1
+                    onExited:       healthWarning.opacity = 0.8
+                    onClicked:      {
+                        _valuesWidget.showPage(2)
+                        healthWarning._warningsViewed = true
+                    }
+                }
+
+                Connections {
+                    target: _activeVehicle
+                    onUnhealthySensorsChanged: healthWarning._warningsViewed = false
+                }
+            }
         }
 
         Rectangle {
-            id:                 _spacer1
-            height:             1
-            width:              parent.width * 0.9
-            color:              isSatellite ? Qt.rgba(0,0,0,0.25) : Qt.rgba(1,1,1,0.25)
-            anchors.horizontalCenter: parent.horizontalCenter
+            id:                         _spacer1
+            anchors.horizontalCenter:   parent.horizontalCenter
+            height:                     1
+            width:                      parent.width * 0.9
+            color:                      qgcPal.text
         }
 
         Item {
@@ -131,35 +140,37 @@ Item {
             Rectangle {
                 anchors.fill:   _valuesWidget
                 color:          _backgroundColor
-                visible:        !_showCompass
                 radius:         _spacing
+                visible:        !_showLargeCompass
             }
 
             InstrumentSwipeView {
                 id:                 _valuesWidget
-                width:              parent.width
-                qgcView:            instrumentPanel.qgcView
-                textColor:          isSatellite ? "black" : "white"
+                anchors.margins:    1
+                anchors.left:       parent.left
+                anchors.right:      parent.right
+                qgcView:            instrumentPanel._qgcView
+                textColor:          qgcPal.text
                 backgroundColor:    _backgroundColor
                 maxHeight:          _availableValueHeight
             }
         }
 
         Rectangle {
-            id:                 _spacer2
-            height:             1
-            width:              parent.width * 0.9
-            color:              isSatellite ? Qt.rgba(0,0,0,0.25) : Qt.rgba(1,1,1,0.25)
-            visible:            _showCompass
-            anchors.horizontalCenter: parent.horizontalCenter
+            id:                         _spacer2
+            anchors.horizontalCenter:   parent.horizontalCenter
+            height:                     1
+            width:                      parent.width * 0.9
+            color:                      qgcPal.text
+            visible:                    _showLargeCompass
         }
 
         QGCCompassWidget {
-            id:                 compass
-            size:               parent.width * 0.95
-            active:             instrumentPanel.active
-            visible:            _showCompass
-            anchors.horizontalCenter: parent.horizontalCenter
+            id:                         compass
+            anchors.horizontalCenter:   parent.horizontalCenter
+            size:                       parent.width * 0.95
+            vehicle:                    _activeVehicle
+            visible:                    _showLargeCompass
         }
     }
 }

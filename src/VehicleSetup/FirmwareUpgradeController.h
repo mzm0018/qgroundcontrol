@@ -1,25 +1,12 @@
-/*=====================================================================
- 
- QGroundControl Open Source Ground Control Station
- 
- (c) 2009, 2015 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- 
- This file is part of the QGROUNDCONTROL project
- 
- QGROUNDCONTROL is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
- 
- QGROUNDCONTROL is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
- 
- You should have received a copy of the GNU General Public License
- along with QGROUNDCONTROL. If not, see <http://www.gnu.org/licenses/>.
- 
- ======================================================================*/
+/****************************************************************************
+ *
+ *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ *
+ * QGroundControl is licensed according to the terms in the file
+ * COPYING.md in the root of the source code directory.
+ *
+ ****************************************************************************/
+
 
 /// @file
 ///     @author Don Gagne <don@thegagnes.com>
@@ -55,7 +42,8 @@ public:
             AutoPilotStackPX4,
             AutoPilotStackAPM,
             PX4Flow,
-            ThreeDRRadio
+            ThreeDRRadio,
+            SingleFirmwareMode
         } AutoPilotStackType_t;
 
         typedef enum {
@@ -73,8 +61,10 @@ public:
             YFirmware,
             Y6Firmware,
             HeliFirmware,
+            CopterFirmware,
             PlaneFirmware,
             RoverFirmware,
+            SubFirmware,
             DefaultVehicleFirmware
         } FirmwareVehicleType_t;
 
@@ -109,8 +99,12 @@ public:
     Q_PROPERTY(QString          boardPort                   READ boardPort                                              NOTIFY boardFound)
     Q_PROPERTY(QString          boardDescription            READ boardDescription                                       NOTIFY boardFound)
     Q_PROPERTY(QString          boardType                   MEMBER _foundBoardTypeName                                  NOTIFY boardFound)
+    Q_PROPERTY(bool             pixhawkBoard                READ pixhawkBoard                                           NOTIFY boardFound)
+    Q_PROPERTY(bool             px4FlowBoard                READ px4FlowBoard                                           NOTIFY boardFound)
     Q_PROPERTY(FirmwareType_t   selectedFirmwareType        READ selectedFirmwareType   WRITE setSelectedFirmwareType   NOTIFY selectedFirmwareTypeChanged)
     Q_PROPERTY(QStringList      apmAvailableVersions        READ apmAvailableVersions                                   NOTIFY apmAvailableVersionsChanged)
+    Q_PROPERTY(QString          px4StableVersion            READ px4StableVersion                                       NOTIFY px4StableVersionChanged)
+    Q_PROPERTY(QString          px4BetaVersion              READ px4BetaVersion                                         NOTIFY px4BetaVersionChanged)
 
     /// TextArea for log output
     Q_PROPERTY(QQuickItem* statusLog READ statusLog WRITE setStatusLog)
@@ -128,6 +122,9 @@ public:
     Q_INVOKABLE void flash(AutoPilotStackType_t stackType,
                            FirmwareType_t firmwareType = StableFirmware,
                            FirmwareVehicleType_t vehicleType = DefaultVehicleFirmware );
+
+    /// Called to flash when upgrade is running in singleFirmwareMode
+    Q_INVOKABLE void flashSingleFirmwareMode(void);
 
     Q_INVOKABLE FirmwareVehicleType_t vehicleTypeFromVersionIndex(int index);
     
@@ -150,6 +147,11 @@ public:
     QString firmwareTypeAsString(FirmwareType_t type) const;
 
     QStringList apmAvailableVersions(void);
+    QString px4StableVersion(void) { return _px4StableVersion; }
+    QString px4BetaVersion(void) { return _px4BetaVersion; }
+
+    bool pixhawkBoard(void) const { return _foundBoardType == QGCSerialPortInfo::BoardTypePixhawk; }
+    bool px4FlowBoard(void) const { return _foundBoardType == QGCSerialPortInfo::BoardTypePX4Flow; }
 
 signals:
     void boardFound(void);
@@ -160,12 +162,14 @@ signals:
     void error(void);
     void selectedFirmwareTypeChanged(FirmwareType_t firmwareType);
     void apmAvailableVersionsChanged(void);
-    
+    void px4StableVersionChanged(const QString& px4StableVersion);
+    void px4BetaVersionChanged(const QString& px4BetaVersion);
+
 private slots:
-    void _downloadProgress(qint64 curr, qint64 total);
-    void _downloadFinished(void);
-    void _downloadError(QNetworkReply::NetworkError code);
-    void _foundBoard(bool firstAttempt, const QSerialPortInfo& portInfo, int boardType);
+    void _firmwareDownloadProgress(qint64 curr, qint64 total);
+    void _firmwareDownloadFinished(QString remoteFile, QString localFile);
+    void _firmwareDownloadError(QString errorMsg);
+    void _foundBoard(bool firstAttempt, const QSerialPortInfo& portInfo, int boardType, QString boardName);
     void _noBoardFound(void);
     void _boardGone();
     void _foundBootloader(int bootloaderVersion, int boardID, int flashSize);
@@ -178,6 +182,8 @@ private slots:
     void _eraseComplete(void);
     void _eraseProgressTick(void);
     void _apmVersionDownloadFinished(QString remoteFile, QString localFile);
+    void _px4ReleasesGithubDownloadFinished(QString remoteFile, QString localFile);
+    void _px4ReleasesGithubDownloadError(QString errorMsg);
 
 private:
     void _getFirmwareFile(FirmwareIdentifier firmwareId);
@@ -185,18 +191,28 @@ private:
     void _downloadFirmware(void);
     void _appendStatusLog(const QString& text, bool critical = false);
     void _errorCancel(const QString& msg);
-    void _loadAPMVersions(QGCSerialPortInfo::BoardType_t boardType);
+    void _loadAPMVersions(uint32_t bootloaderBoardID);
     QHash<FirmwareIdentifier, QString>* _firmwareHashForBoardId(int boardId);
-    QHash<FirmwareIdentifier, QString>* _firmwareHashForBoardType(QGCSerialPortInfo::BoardType_t boardType);
+    void _determinePX4StableVersion(void);
 
+    QString _singleFirmwareURL;
+    bool    _singleFirmwareMode;
     QString _portName;
     QString _portDescription;
 
     // firmware hashes
+    QHash<FirmwareIdentifier, QString> _rgPX4FMUV5Firmware;
+    QHash<FirmwareIdentifier, QString> _rgPX4FMUV4PROFirmware;
     QHash<FirmwareIdentifier, QString> _rgPX4FMUV4Firmware;
+    QHash<FirmwareIdentifier, QString> _rgPX4FMUV3Firmware;
     QHash<FirmwareIdentifier, QString> _rgPX4FMUV2Firmware;
     QHash<FirmwareIdentifier, QString> _rgAeroCoreFirmware;
     QHash<FirmwareIdentifier, QString> _rgPX4FMUV1Firmware;
+    QHash<FirmwareIdentifier, QString> _rgAUAVX2_1Firmware;
+    QHash<FirmwareIdentifier, QString> _rgMindPXFMUV2Firmware;
+    QHash<FirmwareIdentifier, QString> _rgTAPV1Firmware;
+    QHash<FirmwareIdentifier, QString> _rgASCV1Firmware;
+    QHash<FirmwareIdentifier, QString> _rgCrazyflie2Firmware;
     QHash<FirmwareIdentifier, QString> _rgPX4FLowFirmware;
     QHash<FirmwareIdentifier, QString> _rg3DRRadioFirmware;
 
@@ -219,7 +235,7 @@ private:
     QNetworkAccessManager*  _downloadManager;       ///< Used for firmware file downloading across the internet
     QNetworkReply*          _downloadNetworkReply;  ///< Used for firmware file downloading across the internet
     
-    /// @brief Thread controller which is used to run bootloader commands on seperate thread
+    /// @brief Thread controller which is used to run bootloader commands on separate thread
     PX4FirmwareUpgradeThreadController* _threadController;
     
     static const int    _eraseTickMsec = 500;       ///< Progress bar update tick time for erase
@@ -242,6 +258,9 @@ private:
     FirmwareType_t                  _selectedFirmwareType;
 
     FirmwareImage*  _image;
+
+    QString _px4StableVersion;  // Version strange for latest PX4 stable
+    QString _px4BetaVersion;    // Version strange for latest PX4 beta
 };
 
 // global hashing function
